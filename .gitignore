@@ -1,0 +1,19 @@
+# Credentials — NEVER commit
+.env
+shops.json
+ads.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.cache/
+
+# Logs
+*.log
+
+# OS
+.DS_Store

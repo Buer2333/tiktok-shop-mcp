@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tiktok-shop-mcp"
+version = "0.1.0"
+description = "Model Context Protocol (MCP) server for TikTok Shop API - orders, finance, and products"
+readme = {text = "TikTok Shop MCP Server", content-type = "text/plain"}
+license = {text = "MIT"}
+requires-python = ">=3.10"
+keywords = ["tiktok", "shop", "mcp", "api", "ecommerce"]
+
+dependencies = [
+    "python-dotenv>=1.0.0",
+    "mcp>=1.9.0",
+    "httpx>=0.27.0",
+    "tenacity>=8.2.0",
+]
+
+[project.scripts]
+tiktok-shop-mcp = "tiktok_shop_mcp.main:cli"
