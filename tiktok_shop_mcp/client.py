@@ -8,7 +8,7 @@ import logging
 from typing import Dict, Any, Optional
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from mcp_retry import httpx_retry
 
 from .config import config, ShopCredentials
 
@@ -75,12 +75,7 @@ class TikTokShopClient:
         """
         return await self._do_request(method, resource, action, params, body, _retried_auth, api_version, skip_cipher)
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=retry_if_exception_type((httpx.RequestError, httpx.HTTPStatusError)),
-        reraise=True,
-    )
+    @httpx_retry()
     async def _do_request(
         self,
         method: str,
@@ -117,58 +112,52 @@ class TikTokShopClient:
         }
 
         async with httpx.AsyncClient(timeout=self.request_timeout) as client:
-            try:
-                logger.debug(f"[{self.shop.seller_name}] {method} {full_url}")
+            logger.debug(f"[{self.shop.seller_name}] {method} {full_url}")
 
-                if method == "GET":
-                    response = await client.get(full_url, params=query_params, headers=headers)
-                elif method == "POST":
-                    response = await client.post(full_url, params=query_params, headers=headers, content=body_str)
-                else:
-                    raise Exception(f"Unsupported HTTP method: {method}")
+            if method == "GET":
+                response = await client.get(full_url, params=query_params, headers=headers)
+            elif method == "POST":
+                response = await client.post(full_url, params=query_params, headers=headers, content=body_str)
+            else:
+                raise Exception(f"Unsupported HTTP method: {method}")
 
-                # Auto-refresh on 401, retry once
-                if response.status_code == 401 and not _retried_auth:
-                    logger.info(f"[{self.shop.seller_name}] 401 received, auto-refreshing token...")
-                    try:
-                        await self.refresh_access_token()
-                        logger.info(f"[{self.shop.seller_name}] Token refreshed, retrying request...")
-                        return await self._make_request(
-                            method, resource, action, params, body,
-                            _retried_auth=True, api_version=api_version, skip_cipher=skip_cipher
-                        )
-                    except Exception as refresh_err:
-                        raise Exception(
-                            f"[{self.shop.seller_name}] Token expired and auto-refresh failed: {refresh_err}"
-                        )
-                elif response.status_code == 401:
-                    raise Exception(
-                        f"[{self.shop.seller_name}] Token invalid even after refresh. Re-authorize the app."
+            # Auto-refresh on 401, retry once
+            if response.status_code == 401 and not _retried_auth:
+                logger.info(f"[{self.shop.seller_name}] 401 received, auto-refreshing token...")
+                try:
+                    await self.refresh_access_token()
+                    logger.info(f"[{self.shop.seller_name}] Token refreshed, retrying request...")
+                    return await self._make_request(
+                        method, resource, action, params, body,
+                        _retried_auth=True, api_version=api_version, skip_cipher=skip_cipher
                     )
-                elif response.status_code == 429:
-                    response.raise_for_status()
-                elif response.status_code >= 400:
-                    response.raise_for_status()
-
-                result = response.json()
-
-                if result.get("code") != 0:
-                    error_msg = result.get("message", "Unknown API error")
+                except Exception as refresh_err:
                     raise Exception(
-                        f"[{self.shop.seller_name}] TikTok Shop API error "
-                        f"{result.get('code')}: {error_msg}"
+                        f"[{self.shop.seller_name}] Token expired and auto-refresh failed: {refresh_err}"
                     )
+            elif response.status_code == 401:
+                raise Exception(
+                    f"[{self.shop.seller_name}] Token invalid even after refresh. Re-authorize the app."
+                )
 
-                return result
+            # Retryable: 429 and 5xx
+            if response.status_code == 429 or response.status_code >= 500:
+                response.raise_for_status()
 
-            except httpx.TimeoutException:
-                raise Exception(f"Request timeout after {self.request_timeout}s")
-            except httpx.RequestError as e:
-                raise Exception(f"Connection error: {str(e)}")
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 429:
-                    raise
-                raise Exception(f"HTTP {e.response.status_code}: {e.response.text}")
+            # Other client errors
+            if response.status_code >= 400:
+                raise Exception(f"HTTP {response.status_code}: {response.text}")
+
+            result = response.json()
+
+            if result.get("code") != 0:
+                error_msg = result.get("message", "Unknown API error")
+                raise Exception(
+                    f"[{self.shop.seller_name}] TikTok Shop API error "
+                    f"{result.get('code')}: {error_msg}"
+                )
+
+            return result
 
     async def refresh_access_token(self) -> Dict[str, str]:
         """Refresh the access token using the refresh token.
