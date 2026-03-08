@@ -69,6 +69,8 @@ async def get_orders(
             orders.append({
                 "order_id": order.get("id"),
                 "status": order.get("order_status"),
+                "order_type": order.get("order_type"),
+                "is_sample_order": order.get("is_sample_order", False),
                 "create_time": order.get("create_time"),
                 "update_time": order.get("update_time"),
                 "buyer_message": order.get("buyer_message"),
@@ -139,6 +141,8 @@ async def get_order_detail(
             orders.append({
                 "order_id": order.get("id"),
                 "status": order.get("order_status"),
+                "order_type": order.get("order_type"),
+                "is_sample_order": order.get("is_sample_order", False),
                 "create_time": order.get("create_time"),
                 "update_time": order.get("update_time"),
                 "paid_time": order.get("paid_time"),
