@@ -1,7 +1,8 @@
 """Analytics Tools for TikTok Shop (v202509/v202510)"""
 
 import logging
-from typing import Dict, Any, Optional
+from collections import defaultdict
+from typing import Dict, Any, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -218,3 +219,91 @@ async def get_sku_performance(
         params=params, api_version="202509",
     )
     return response.get("data", {})
+
+
+async def get_account_video_gmv(
+    client,
+    start_date_ge: str,
+    end_date_lt: str,
+    usernames: Optional[List[str]] = None,
+    currency: str = "USD",
+    account_type: str = "ALL",
+    **kwargs,
+) -> Dict[str, Any]:
+    """Auto-paginate all shop videos and aggregate GMV by account username.
+
+    GET /analytics/202509/shop_videos/performance (auto-paginated)
+
+    Args:
+        start_date_ge: Start date (YYYY-MM-DD, inclusive)
+        end_date_lt: End date (YYYY-MM-DD, exclusive)
+        usernames: Optional list of usernames to filter (case-insensitive).
+                   If None, returns all accounts.
+        currency: "USD" or "LOCAL"
+        account_type: "ALL", "OFFICIAL_ACCOUNTS", "MARKETING_ACCOUNTS", "AFFILIATE_ACCOUNTS"
+    """
+    username_set = None
+    if usernames:
+        username_set = {u.lower() for u in usernames}
+
+    accounts: Dict[str, Dict[str, Any]] = defaultdict(lambda: {
+        "gmv": 0.0, "orders": 0, "items_sold": 0, "videos": 0,
+    })
+
+    page_token = None
+    total_videos_scanned = 0
+    max_pages = 100  # safety limit
+
+    for _ in range(max_pages):
+        params = {
+            "start_date_ge": start_date_ge,
+            "end_date_lt": end_date_lt,
+            "currency": currency,
+            "account_type": account_type,
+            "page_size": "50",
+            "sort_field": "gmv",
+            "sort_order": "DESC",
+        }
+        if page_token:
+            params["page_token"] = page_token
+
+        response = await client._make_request(
+            "GET", "analytics", "shop_videos/performance",
+            params=params, api_version="202509",
+        )
+        data = response.get("data", {})
+        videos = data.get("videos", [])
+
+        if not videos:
+            break
+
+        for v in videos:
+            uname = v.get("username", "unknown")
+            total_videos_scanned += 1
+
+            if username_set and uname.lower() not in username_set:
+                continue
+
+            gmv_val = float(v.get("gmv", {}).get("amount", "0"))
+            accounts[uname]["gmv"] += gmv_val
+            accounts[uname]["orders"] += v.get("sku_orders", 0)
+            accounts[uname]["items_sold"] += v.get("items_sold", 0)
+            accounts[uname]["videos"] += 1
+
+        page_token = data.get("next_page_token")
+        if not page_token:
+            break
+
+    # Sort by GMV descending
+    sorted_accounts = sorted(
+        accounts.items(), key=lambda x: x[1]["gmv"], reverse=True,
+    )
+
+    return {
+        "total_videos_scanned": total_videos_scanned,
+        "total_accounts": len(sorted_accounts),
+        "accounts": [
+            {"username": uname, **stats}
+            for uname, stats in sorted_accounts
+        ],
+    }

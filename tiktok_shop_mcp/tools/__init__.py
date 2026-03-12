@@ -10,6 +10,7 @@ from .get_analytics import (
     get_product_performance,
     get_shop_videos_performance,
     get_sku_performance,
+    get_account_video_gmv,
 )
 from .get_returns import search_returns, search_cancellations
 
@@ -25,6 +26,7 @@ __all__ = [
     "get_product_performance",
     "get_shop_videos_performance",
     "get_sku_performance",
+    "get_account_video_gmv",
     "search_returns",
     "search_cancellations",
 ]

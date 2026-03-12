@@ -27,6 +27,7 @@ from .tools import (
     get_product_performance,
     get_shop_videos_performance,
     get_sku_performance,
+    get_account_video_gmv,
     search_returns,
     search_cancellations,
 )
@@ -469,6 +470,33 @@ async def get_sku_performance_tool(
         "success": True,
         "seller_name": client.shop.seller_name,
         "sku_id": sku_id,
+        "data": data,
+    }, indent=2)
+
+
+@app.tool()
+@handle_errors
+async def get_account_video_gmv_tool(
+    seller_name: Optional[str] = None,
+    start_date_ge: str = "",
+    end_date_lt: str = "",
+    usernames: Optional[str] = None,
+    currency: str = "USD",
+    account_type: str = "ALL",
+) -> str:
+    """Auto-paginate all shop videos and aggregate GMV by account username. Pass usernames as comma-separated string (e.g. 'dr.elise,dr.camila') to filter specific accounts. Returns per-account totals: gmv, orders, items_sold, video count."""
+    client = get_shop_client(seller_name)
+    username_list = None
+    if usernames:
+        username_list = [u.strip() for u in usernames.split(",") if u.strip()]
+    data = await get_account_video_gmv(
+        client, start_date_ge=start_date_ge, end_date_lt=end_date_lt,
+        usernames=username_list, currency=currency, account_type=account_type,
+    )
+    return json.dumps({
+        "success": True,
+        "seller_name": client.shop.seller_name,
+        "date_range": f"{start_date_ge} to {end_date_lt}",
         "data": data,
     }, indent=2)
 
