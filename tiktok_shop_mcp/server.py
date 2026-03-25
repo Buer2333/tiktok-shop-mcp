@@ -21,6 +21,7 @@ from .tools import (
     get_transactions,
     get_statements,
     get_products,
+    get_product_detail,
     get_shop_performance,
     get_shop_performance_hourly,
     get_shop_products_performance,
