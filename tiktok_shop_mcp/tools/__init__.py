@@ -3,6 +3,7 @@
 from .get_orders import get_orders, get_order_detail
 from .get_finance import get_transactions, get_statements
 from .get_products import get_products
+from .get_product_detail import get_product_detail
 from .get_analytics import (
     get_shop_performance,
     get_shop_performance_hourly,
@@ -20,6 +21,7 @@ __all__ = [
     "get_transactions",
     "get_statements",
     "get_products",
+    "get_product_detail",
     "get_shop_performance",
     "get_shop_performance_hourly",
     "get_shop_products_performance",

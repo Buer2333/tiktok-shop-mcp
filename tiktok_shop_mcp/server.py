@@ -9,7 +9,7 @@ import logging
 import functools
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from mcp.server import FastMCP
 
@@ -51,34 +51,44 @@ def get_shop_client(seller_name: Optional[str] = None) -> TikTokShopClient:
 
 def handle_errors(func):
     """Decorator to handle errors in tool functions"""
+
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
         try:
             return await func(*args, **kwargs)
         except Exception as e:
-            return json.dumps({
-                "error": True,
-                "message": f"Error: {str(e)}",
-                "suggestion": "Check credentials and try again. If token expired, use refresh_token_tool."
-            }, indent=2)
+            return json.dumps(
+                {
+                    "error": True,
+                    "message": f"Error: {str(e)}",
+                    "suggestion": "Check credentials and try again. If token expired, use refresh_token_tool.",
+                },
+                indent=2,
+            )
+
     return wrapper
 
 
 # ─── Shop Info ───
+
 
 @app.tool()
 @handle_errors
 async def list_shops_tool(random_string: str = "") -> str:
     """List all configured TikTok Shop accounts with their names and token expiry dates."""
     shops = config.list_shops()
-    return json.dumps({
-        "success": True,
-        "count": len(shops),
-        "shops": shops,
-    }, indent=2)
+    return json.dumps(
+        {
+            "success": True,
+            "count": len(shops),
+            "shops": shops,
+        },
+        indent=2,
+    )
 
 
 # ─── Order Tools ───
+
 
 @app.tool()
 @handle_errors
@@ -118,7 +128,9 @@ async def get_shop_orders_tool(
         create_time_ge = int(start_dt.timestamp())
 
         if end_date:
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=tz) + timedelta(days=1)
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(
+                tzinfo=tz
+            ) + timedelta(days=1)
         else:
             end_dt = start_dt + timedelta(days=1)
         create_time_lt = int(end_dt.timestamp())
@@ -141,20 +153,27 @@ async def get_shop_orders_tool(
     period = {}
     if create_time_ge and create_time_lt:
         period = {
-            "start_utc": datetime.utcfromtimestamp(create_time_ge).strftime("%Y-%m-%d %H:%M"),
-            "end_utc": datetime.utcfromtimestamp(create_time_lt).strftime("%Y-%m-%d %H:%M"),
+            "start_utc": datetime.utcfromtimestamp(create_time_ge).strftime(
+                "%Y-%m-%d %H:%M"
+            ),
+            "end_utc": datetime.utcfromtimestamp(create_time_lt).strftime(
+                "%Y-%m-%d %H:%M"
+            ),
             "timezone": timezone if start_date else "raw_unix",
         }
 
-    return json.dumps({
-        "success": True,
-        "seller_name": client.shop.seller_name,
-        "period": period or None,
-        "count": len(result["orders"]),
-        "total_count": result.get("total_count"),
-        "next_page_token": result.get("next_page_token"),
-        "orders": result["orders"],
-    }, indent=2)
+    return json.dumps(
+        {
+            "success": True,
+            "seller_name": client.shop.seller_name,
+            "period": period or None,
+            "count": len(result["orders"]),
+            "total_count": result.get("total_count"),
+            "next_page_token": result.get("next_page_token"),
+            "orders": result["orders"],
+        },
+        indent=2,
+    )
 
 
 @app.tool()
@@ -166,15 +185,19 @@ async def get_order_detail_tool(
     """Get detailed information for specific TikTok Shop orders (max 50 IDs). Use seller_name to specify which shop."""
     client = get_shop_client(seller_name)
     orders = await get_order_detail(client, order_ids=order_ids)
-    return json.dumps({
-        "success": True,
-        "seller_name": client.shop.seller_name,
-        "count": len(orders),
-        "orders": orders,
-    }, indent=2)
+    return json.dumps(
+        {
+            "success": True,
+            "seller_name": client.shop.seller_name,
+            "count": len(orders),
+            "orders": orders,
+        },
+        indent=2,
+    )
 
 
 # ─── Finance Tools ───
+
 
 @app.tool()
 @handle_errors
@@ -196,13 +219,16 @@ async def get_shop_statements_tool(
         page_size=page_size,
         next_page_token=next_page_token,
     )
-    return json.dumps({
-        "success": True,
-        "seller_name": client.shop.seller_name,
-        "count": len(result["statements"]),
-        "next_page_token": result.get("next_page_token"),
-        "statements": result["statements"],
-    }, indent=2)
+    return json.dumps(
+        {
+            "success": True,
+            "seller_name": client.shop.seller_name,
+            "count": len(result["statements"]),
+            "next_page_token": result.get("next_page_token"),
+            "statements": result["statements"],
+        },
+        indent=2,
+    )
 
 
 @app.tool()
@@ -217,15 +243,19 @@ async def get_shop_transactions_tool(
     result = await get_transactions(
         client, order_id=order_id, statement_id=statement_id
     )
-    return json.dumps({
-        "success": True,
-        "seller_name": client.shop.seller_name,
-        "count": len(result["transactions"]),
-        "transactions": result["transactions"],
-    }, indent=2)
+    return json.dumps(
+        {
+            "success": True,
+            "seller_name": client.shop.seller_name,
+            "count": len(result["transactions"]),
+            "transactions": result["transactions"],
+        },
+        indent=2,
+    )
 
 
 # ─── Product Tools ───
+
 
 @app.tool()
 @handle_errors
@@ -240,17 +270,40 @@ async def get_shop_products_tool(
     result = await get_products(
         client, status=status, page_size=page_size, next_page_token=next_page_token
     )
-    return json.dumps({
-        "success": True,
-        "seller_name": client.shop.seller_name,
-        "count": len(result["products"]),
-        "total_count": result.get("total_count"),
-        "next_page_token": result.get("next_page_token"),
-        "products": result["products"],
-    }, indent=2)
+    return json.dumps(
+        {
+            "success": True,
+            "seller_name": client.shop.seller_name,
+            "count": len(result["products"]),
+            "total_count": result.get("total_count"),
+            "next_page_token": result.get("next_page_token"),
+            "products": result["products"],
+        },
+        indent=2,
+    )
+
+
+@app.tool()
+@handle_errors
+async def get_product_detail_tool(
+    product_id: str,
+    seller_name: Optional[str] = None,
+) -> str:
+    """Get detailed product info including SKU prices. Use seller_name to specify which shop."""
+    client = get_shop_client(seller_name)
+    result = await get_product_detail(client, product_id=product_id)
+    return json.dumps(
+        {
+            "success": True,
+            "seller_name": client.shop.seller_name,
+            **result,
+        },
+        indent=2,
+    )
 
 
 # ─── Return/Refund Tools ───
+
 
 @app.tool()
 @handle_errors
@@ -270,24 +323,32 @@ async def search_returns_tool(
         start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=tz)
         create_time_ge = int(start_dt.timestamp())
         if end_date:
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=tz) + timedelta(days=1)
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(
+                tzinfo=tz
+            ) + timedelta(days=1)
         else:
             end_dt = start_dt + timedelta(days=1)
         create_time_lt = int(end_dt.timestamp())
 
     client = get_shop_client(seller_name)
     result = await search_returns(
-        client, create_time_ge=create_time_ge, create_time_lt=create_time_lt,
-        page_size=page_size, next_page_token=next_page_token,
+        client,
+        create_time_ge=create_time_ge,
+        create_time_lt=create_time_lt,
+        page_size=page_size,
+        next_page_token=next_page_token,
     )
-    return json.dumps({
-        "success": True,
-        "seller_name": client.shop.seller_name,
-        "count": len(result["returns"]),
-        "total_count": result.get("total_count"),
-        "next_page_token": result.get("next_page_token"),
-        "returns": result["returns"],
-    }, indent=2)
+    return json.dumps(
+        {
+            "success": True,
+            "seller_name": client.shop.seller_name,
+            "count": len(result["returns"]),
+            "total_count": result.get("total_count"),
+            "next_page_token": result.get("next_page_token"),
+            "returns": result["returns"],
+        },
+        indent=2,
+    )
 
 
 @app.tool()
@@ -308,27 +369,36 @@ async def search_cancellations_tool(
         start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=tz)
         create_time_ge = int(start_dt.timestamp())
         if end_date:
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=tz) + timedelta(days=1)
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(
+                tzinfo=tz
+            ) + timedelta(days=1)
         else:
             end_dt = start_dt + timedelta(days=1)
         create_time_lt = int(end_dt.timestamp())
 
     client = get_shop_client(seller_name)
     result = await search_cancellations(
-        client, create_time_ge=create_time_ge, create_time_lt=create_time_lt,
-        page_size=page_size, next_page_token=next_page_token,
+        client,
+        create_time_ge=create_time_ge,
+        create_time_lt=create_time_lt,
+        page_size=page_size,
+        next_page_token=next_page_token,
     )
-    return json.dumps({
-        "success": True,
-        "seller_name": client.shop.seller_name,
-        "count": len(result["cancellations"]),
-        "total_count": result.get("total_count"),
-        "next_page_token": result.get("next_page_token"),
-        "cancellations": result["cancellations"],
-    }, indent=2)
+    return json.dumps(
+        {
+            "success": True,
+            "seller_name": client.shop.seller_name,
+            "count": len(result["cancellations"]),
+            "total_count": result.get("total_count"),
+            "next_page_token": result.get("next_page_token"),
+            "cancellations": result["cancellations"],
+        },
+        indent=2,
+    )
 
 
 # ─── Analytics Tools (v202509/v202510) ───
+
 
 @app.tool()
 @handle_errors
@@ -343,14 +413,20 @@ async def get_shop_performance_tool(
     Dates are YYYY-MM-DD. granularity: 'ALL' (aggregate) or '1D' (daily). Use seller_name to specify shop."""
     client = get_shop_client(seller_name)
     data = await get_shop_performance(
-        client, start_date_ge=start_date_ge, end_date_lt=end_date_lt,
-        granularity=granularity, currency=currency,
+        client,
+        start_date_ge=start_date_ge,
+        end_date_lt=end_date_lt,
+        granularity=granularity,
+        currency=currency,
     )
-    return json.dumps({
-        "success": True,
-        "seller_name": client.shop.seller_name,
-        "data": data,
-    }, indent=2)
+    return json.dumps(
+        {
+            "success": True,
+            "seller_name": client.shop.seller_name,
+            "data": data,
+        },
+        indent=2,
+    )
 
 
 @app.tool()
@@ -363,12 +439,15 @@ async def get_shop_performance_hourly_tool(
     """Get shop performance by hour for a specific date (YYYY-MM-DD). Use seller_name to specify shop."""
     client = get_shop_client(seller_name)
     data = await get_shop_performance_hourly(client, date=date, currency=currency)
-    return json.dumps({
-        "success": True,
-        "seller_name": client.shop.seller_name,
-        "date": date,
-        "data": data,
-    }, indent=2)
+    return json.dumps(
+        {
+            "success": True,
+            "seller_name": client.shop.seller_name,
+            "date": date,
+            "data": data,
+        },
+        indent=2,
+    )
 
 
 @app.tool()
@@ -387,16 +466,24 @@ async def get_shop_products_performance_tool(
     """Get performance ranking for all products (GMV, orders, items_sold). Sort by gmv/items_sold/orders. Use seller_name to specify shop."""
     client = get_shop_client(seller_name)
     data = await get_shop_products_performance(
-        client, start_date_ge=start_date_ge, end_date_lt=end_date_lt,
-        currency=currency, page_size=page_size, sort_field=sort_field,
-        sort_order=sort_order, page_token=page_token,
+        client,
+        start_date_ge=start_date_ge,
+        end_date_lt=end_date_lt,
+        currency=currency,
+        page_size=page_size,
+        sort_field=sort_field,
+        sort_order=sort_order,
+        page_token=page_token,
         product_status_filter=product_status_filter,
     )
-    return json.dumps({
-        "success": True,
-        "seller_name": client.shop.seller_name,
-        "data": data,
-    }, indent=2)
+    return json.dumps(
+        {
+            "success": True,
+            "seller_name": client.shop.seller_name,
+            "data": data,
+        },
+        indent=2,
+    )
 
 
 @app.tool()
@@ -412,15 +499,22 @@ async def get_product_performance_tool(
     """Get single product performance with VIDEO/LIVE/PRODUCT_CARD breakdown. Use seller_name to specify shop."""
     client = get_shop_client(seller_name)
     data = await get_product_performance(
-        client, product_id=product_id, start_date_ge=start_date_ge,
-        end_date_lt=end_date_lt, granularity=granularity, currency=currency,
+        client,
+        product_id=product_id,
+        start_date_ge=start_date_ge,
+        end_date_lt=end_date_lt,
+        granularity=granularity,
+        currency=currency,
     )
-    return json.dumps({
-        "success": True,
-        "seller_name": client.shop.seller_name,
-        "product_id": product_id,
-        "data": data,
-    }, indent=2)
+    return json.dumps(
+        {
+            "success": True,
+            "seller_name": client.shop.seller_name,
+            "product_id": product_id,
+            "data": data,
+        },
+        indent=2,
+    )
 
 
 @app.tool()
@@ -439,15 +533,24 @@ async def get_shop_videos_performance_tool(
     """Get performance ranking for all videos driving shop sales (GMV, views, click-through). account_type: ALL/SELF/AFFILIATE. Use seller_name to specify shop."""
     client = get_shop_client(seller_name)
     data = await get_shop_videos_performance(
-        client, start_date_ge=start_date_ge, end_date_lt=end_date_lt,
-        currency=currency, account_type=account_type, page_size=page_size,
-        sort_field=sort_field, sort_order=sort_order, page_token=page_token,
+        client,
+        start_date_ge=start_date_ge,
+        end_date_lt=end_date_lt,
+        currency=currency,
+        account_type=account_type,
+        page_size=page_size,
+        sort_field=sort_field,
+        sort_order=sort_order,
+        page_token=page_token,
     )
-    return json.dumps({
-        "success": True,
-        "seller_name": client.shop.seller_name,
-        "data": data,
-    }, indent=2)
+    return json.dumps(
+        {
+            "success": True,
+            "seller_name": client.shop.seller_name,
+            "data": data,
+        },
+        indent=2,
+    )
 
 
 @app.tool()
@@ -463,15 +566,22 @@ async def get_sku_performance_tool(
     """Get single SKU performance. Use seller_name to specify shop."""
     client = get_shop_client(seller_name)
     data = await get_sku_performance(
-        client, sku_id=sku_id, start_date_ge=start_date_ge,
-        end_date_lt=end_date_lt, granularity=granularity, currency=currency,
+        client,
+        sku_id=sku_id,
+        start_date_ge=start_date_ge,
+        end_date_lt=end_date_lt,
+        granularity=granularity,
+        currency=currency,
     )
-    return json.dumps({
-        "success": True,
-        "seller_name": client.shop.seller_name,
-        "sku_id": sku_id,
-        "data": data,
-    }, indent=2)
+    return json.dumps(
+        {
+            "success": True,
+            "seller_name": client.shop.seller_name,
+            "sku_id": sku_id,
+            "data": data,
+        },
+        indent=2,
+    )
 
 
 @app.tool()
@@ -490,18 +600,26 @@ async def get_account_video_gmv_tool(
     if usernames:
         username_list = [u.strip() for u in usernames.split(",") if u.strip()]
     data = await get_account_video_gmv(
-        client, start_date_ge=start_date_ge, end_date_lt=end_date_lt,
-        usernames=username_list, currency=currency, account_type=account_type,
+        client,
+        start_date_ge=start_date_ge,
+        end_date_lt=end_date_lt,
+        usernames=username_list,
+        currency=currency,
+        account_type=account_type,
     )
-    return json.dumps({
-        "success": True,
-        "seller_name": client.shop.seller_name,
-        "date_range": f"{start_date_ge} to {end_date_lt}",
-        "data": data,
-    }, indent=2)
+    return json.dumps(
+        {
+            "success": True,
+            "seller_name": client.shop.seller_name,
+            "date_range": f"{start_date_ge} to {end_date_lt}",
+            "data": data,
+        },
+        indent=2,
+    )
 
 
 # ─── Token Management ───
+
 
 @app.tool()
 @handle_errors
@@ -511,13 +629,18 @@ async def refresh_token_tool(
     """Refresh the TikTok Shop access token for a specific shop. Call when you get a 401/token expired error. New tokens are auto-saved to shops.json."""
     client = get_shop_client(seller_name)
     result = await client.refresh_access_token()
-    return json.dumps({
-        "success": True,
-        "message": f"Token refreshed for {result['seller_name']}. New tokens saved.",
-        "seller_name": result["seller_name"],
-        "access_token_prefix": result["access_token"][:8] + "..." if result.get("access_token") else None,
-        "expire_in": result.get("expire_in"),
-    }, indent=2)
+    return json.dumps(
+        {
+            "success": True,
+            "message": f"Token refreshed for {result['seller_name']}. New tokens saved.",
+            "seller_name": result["seller_name"],
+            "access_token_prefix": result["access_token"][:8] + "..."
+            if result.get("access_token")
+            else None,
+            "expire_in": result.get("expire_in"),
+        },
+        indent=2,
+    )
 
 
 @app.tool()
@@ -531,25 +654,32 @@ async def refresh_all_tokens_tool(random_string: str = "") -> str:
         try:
             client = get_shop_client(seller_name)
             result = await client.refresh_access_token()
-            results.append({
-                "seller_name": result["seller_name"],
-                "success": True,
-                "expire_in": result.get("expire_in"),
-            })
+            results.append(
+                {
+                    "seller_name": result["seller_name"],
+                    "success": True,
+                    "expire_in": result.get("expire_in"),
+                }
+            )
         except Exception as e:
-            errors.append({
-                "seller_name": seller_name,
-                "success": False,
-                "error": str(e),
-            })
+            errors.append(
+                {
+                    "seller_name": seller_name,
+                    "success": False,
+                    "error": str(e),
+                }
+            )
 
-    return json.dumps({
-        "success": len(errors) == 0,
-        "refreshed": len(results),
-        "failed": len(errors),
-        "results": results,
-        "errors": errors,
-    }, indent=2)
+    return json.dumps(
+        {
+            "success": len(errors) == 0,
+            "refreshed": len(results),
+            "failed": len(errors),
+            "results": results,
+            "errors": errors,
+        },
+        indent=2,
+    )
 
 
 def main():
