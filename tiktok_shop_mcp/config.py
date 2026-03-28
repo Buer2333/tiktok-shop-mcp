@@ -4,7 +4,7 @@ import json
 import os
 import logging
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -91,9 +91,7 @@ class TikTokShopConfig:
     def get_shop(self, seller_name: Optional[str] = None) -> ShopCredentials:
         """Get credentials for a specific shop, or the first available shop."""
         if not self.shops:
-            raise Exception(
-                f"No shops configured. Check {self._shops_path}"
-            )
+            raise Exception(f"No shops configured. Check {self._shops_path}")
 
         if seller_name:
             # Exact match first
@@ -117,6 +115,7 @@ class TikTokShopConfig:
             {
                 "seller_name": s.seller_name,
                 "region": s.seller_base_region,
+                "shop_id": s.shop_id,
                 "app_key": s.app_key,
                 "token_expires": s.access_token_expire_at,
             }
@@ -127,19 +126,21 @@ class TikTokShopConfig:
         """Save current shop credentials back to shops.json."""
         shops_data = []
         for s in self.shops.values():
-            shops_data.append({
-                "seller_name": s.seller_name,
-                "seller_base_region": s.seller_base_region,
-                "app_key": s.app_key,
-                "app_secret": s.app_secret,
-                "open_id": s.open_id,
-                "access_token": s.access_token,
-                "refresh_token": s.refresh_token,
-                "access_token_expire_at": s.access_token_expire_at,
-                "refresh_token_expire_at": s.refresh_token_expire_at,
-                "shop_id": s.shop_id,
-                "shop_cipher": s.shop_cipher,
-            })
+            shops_data.append(
+                {
+                    "seller_name": s.seller_name,
+                    "seller_base_region": s.seller_base_region,
+                    "app_key": s.app_key,
+                    "app_secret": s.app_secret,
+                    "open_id": s.open_id,
+                    "access_token": s.access_token,
+                    "refresh_token": s.refresh_token,
+                    "access_token_expire_at": s.access_token_expire_at,
+                    "refresh_token_expire_at": s.refresh_token_expire_at,
+                    "shop_id": s.shop_id,
+                    "shop_cipher": s.shop_cipher,
+                }
+            )
 
         with open(self._shops_path, "w") as f:
             json.dump(shops_data, f, indent=2)
