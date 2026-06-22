@@ -56,9 +56,16 @@ async def get_product_detail(
                 }
             )
 
-        # Extract main images
+        # Extract main images — API returns dict with "uri" key (not "url")
+        # uri = TOS path; client can construct CDN URL or use uri as image_id for edits
         main_images = [
-            img.get("url") for img in data.get("main_images", []) if img.get("url")
+            {
+                "uri": img.get("uri"),
+                "width": img.get("width"),
+                "height": img.get("height"),
+            }
+            for img in data.get("main_images", [])
+            if img.get("uri")
         ]
 
         # Category chain

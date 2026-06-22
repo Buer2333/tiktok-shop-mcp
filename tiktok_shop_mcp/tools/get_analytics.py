@@ -33,7 +33,10 @@ async def get_shop_performance(
     }
 
     response = await client._make_request(
-        "GET", "analytics", "shop/performance", params=params,
+        "GET",
+        "analytics",
+        "shop/performance",
+        params=params,
         api_version="202509",
     )
     return response.get("data", {})
@@ -56,8 +59,11 @@ async def get_shop_performance_hourly(
     params = {"currency": currency}
 
     response = await client._make_request(
-        "GET", "analytics", f"shop/performance/{date}/performance_per_hour",
-        params=params, api_version="202510",
+        "GET",
+        "analytics",
+        f"shop/performance/{date}/performance_per_hour",
+        params=params,
+        api_version="202510",
     )
     return response.get("data", {})
 
@@ -102,7 +108,10 @@ async def get_shop_products_performance(
         params["product_status_filter"] = product_status_filter
 
     response = await client._make_request(
-        "GET", "analytics", "shop_products/performance", params=params,
+        "GET",
+        "analytics",
+        "shop_products/performance",
+        params=params,
         api_version="202509",
     )
     return response.get("data", {})
@@ -136,8 +145,11 @@ async def get_product_performance(
     }
 
     response = await client._make_request(
-        "GET", "analytics", f"shop_products/{product_id}/performance",
-        params=params, api_version="202509",
+        "GET",
+        "analytics",
+        f"shop_products/{product_id}/performance",
+        params=params,
+        api_version="202509",
     )
     return response.get("data", {})
 
@@ -181,7 +193,10 @@ async def get_shop_videos_performance(
         params["page_token"] = page_token
 
     response = await client._make_request(
-        "GET", "analytics", "shop_videos/performance", params=params,
+        "GET",
+        "analytics",
+        "shop_videos/performance",
+        params=params,
         api_version="202509",
     )
     return response.get("data", {})
@@ -215,8 +230,11 @@ async def get_sku_performance(
     }
 
     response = await client._make_request(
-        "GET", "analytics", f"shop_skus/{sku_id}/performance",
-        params=params, api_version="202509",
+        "GET",
+        "analytics",
+        f"shop_skus/{sku_id}/performance",
+        params=params,
+        api_version="202509",
     )
     return response.get("data", {})
 
@@ -246,9 +264,14 @@ async def get_account_video_gmv(
     if usernames:
         username_set = {u.lower() for u in usernames}
 
-    accounts: Dict[str, Dict[str, Any]] = defaultdict(lambda: {
-        "gmv": 0.0, "orders": 0, "items_sold": 0, "videos": 0,
-    })
+    accounts: Dict[str, Dict[str, Any]] = defaultdict(
+        lambda: {
+            "gmv": 0.0,
+            "orders": 0,
+            "items_sold": 0,
+            "videos": 0,
+        }
+    )
 
     page_token = None
     total_videos_scanned = 0
@@ -268,8 +291,11 @@ async def get_account_video_gmv(
             params["page_token"] = page_token
 
         response = await client._make_request(
-            "GET", "analytics", "shop_videos/performance",
-            params=params, api_version="202509",
+            "GET",
+            "analytics",
+            "shop_videos/performance",
+            params=params,
+            api_version="202509",
         )
         data = response.get("data", {})
         videos = data.get("videos", [])
@@ -296,14 +322,109 @@ async def get_account_video_gmv(
 
     # Sort by GMV descending
     sorted_accounts = sorted(
-        accounts.items(), key=lambda x: x[1]["gmv"], reverse=True,
+        accounts.items(),
+        key=lambda x: x[1]["gmv"],
+        reverse=True,
     )
 
     return {
         "total_videos_scanned": total_videos_scanned,
         "total_accounts": len(sorted_accounts),
-        "accounts": [
-            {"username": uname, **stats}
-            for uname, stats in sorted_accounts
-        ],
+        "accounts": [{"username": uname, **stats} for uname, stats in sorted_accounts],
     }
+
+
+# ─── Bestsellers (v202511, platform-wide TOP 100) ───
+# Requires Bestsellers scope. Returns gmv_range (bucketed) — no exact GMV.
+
+
+async def get_videos_bestselling(
+    client,
+    date: str,
+    time_slot: str = "7D",
+    currency: str = "USD",
+    **kwargs,
+) -> Dict[str, Any]:
+    """Platform-wide TOP 100 bestselling videos.
+
+    GET /analytics/202511/videos/bestselling
+
+    Args:
+        date: Reference date (YYYY-MM-DD) — list reflects performance ending on this date
+        time_slot: "7D" (default) or "30D"
+        currency: "USD" or "LOCAL"
+    """
+    params = {"date": date, "time_slot": time_slot, "currency": currency}
+    response = await client._make_request(
+        "GET",
+        "analytics",
+        "videos/bestselling",
+        params=params,
+        api_version="202511",
+    )
+    return response.get("data", {})
+
+
+async def get_creators_bestselling(
+    client,
+    date: str,
+    time_slot: str = "7D",
+    currency: str = "USD",
+    author_type: str = "ALL",
+    **kwargs,
+) -> Dict[str, Any]:
+    """Platform-wide TOP 100 bestselling creators.
+
+    GET /analytics/202511/creators/bestselling
+
+    Args:
+        date: Reference date (YYYY-MM-DD)
+        time_slot: "7D" (default) or "30D"
+        currency: "USD" or "LOCAL"
+        author_type: "ALL", "AFFILIATE", "OFFICIAL"
+    """
+    params = {
+        "date": date,
+        "time_slot": time_slot,
+        "currency": currency,
+        "author_type": author_type,
+    }
+    response = await client._make_request(
+        "GET",
+        "analytics",
+        "creators/bestselling",
+        params=params,
+        api_version="202511",
+    )
+    return response.get("data", {})
+
+
+async def get_products_bestselling(
+    client,
+    date: str,
+    time_slot: str = "7D",
+    currency: str = "USD",
+    category_id: Optional[str] = None,
+    **kwargs,
+) -> Dict[str, Any]:
+    """Platform-wide TOP 100 bestselling products.
+
+    GET /analytics/202511/products/bestselling
+
+    Args:
+        date: Reference date (YYYY-MM-DD)
+        time_slot: "7D" (default) or "30D"
+        currency: "USD" or "LOCAL"
+        category_id: Optional TikTok category ID to filter (e.g. health/beauty)
+    """
+    params = {"date": date, "time_slot": time_slot, "currency": currency}
+    if category_id:
+        params["category_id"] = category_id
+    response = await client._make_request(
+        "GET",
+        "analytics",
+        "products/bestselling",
+        params=params,
+        api_version="202511",
+    )
+    return response.get("data", {})

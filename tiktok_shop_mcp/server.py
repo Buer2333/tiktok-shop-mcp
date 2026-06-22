@@ -29,6 +29,9 @@ from .tools import (
     get_shop_videos_performance,
     get_sku_performance,
     get_account_video_gmv,
+    get_videos_bestselling,
+    get_creators_bestselling,
+    get_products_bestselling,
     search_returns,
     search_cancellations,
 )
@@ -453,6 +456,37 @@ async def get_shop_performance_hourly_tool(
 
 @app.tool()
 @handle_errors
+async def get_customer_service_performance_tool(
+    support_date_ge: str = "",
+    support_date_lt: str = "",
+    seller_name: Optional[str] = None,
+) -> str:
+    """Get shop customer-service performance (after-sales handling time, IM dissatisfaction rate, etc.) over a custom date window.
+
+    Dates are YYYY-MM-DD. support_date_ge inclusive, support_date_lt exclusive.
+    Wraps GET /customer_service/202407/performance — replaces SPS-backend's locked 60-day window.
+    Use seller_name to specify shop.
+    """
+    client = get_shop_client(seller_name)
+    data = await get_customer_service_performance(
+        client,
+        support_date_ge=support_date_ge,
+        support_date_lt=support_date_lt,
+    )
+    return json.dumps(
+        {
+            "success": True,
+            "seller_name": client.shop.seller_name,
+            "support_date_ge": support_date_ge,
+            "support_date_lt": support_date_lt,
+            "data": data,
+        },
+        indent=2,
+    )
+
+
+@app.tool()
+@handle_errors
 async def get_shop_products_performance_tool(
     seller_name: Optional[str] = None,
     start_date_ge: str = "",
@@ -619,6 +653,116 @@ async def get_account_video_gmv_tool(
     )
 
 
+# ─── Bestsellers (v202511, platform-wide TOP 100) ───
+# Default seller_name=FLYNEW SHOP (only shop with Bestsellers scope).
+# Lists are platform-wide, so any authorized shop returns the same data.
+
+
+@app.tool()
+@handle_errors
+async def get_videos_bestselling_tool(
+    date: str = "",
+    time_slot: str = "7D",
+    currency: str = "USD",
+    seller_name: Optional[str] = "FLYNEW SHOP",
+) -> str:
+    """Platform-wide TOP 100 bestselling videos (requires Bestsellers scope).
+
+    date: reference date YYYY-MM-DD. time_slot: "7D" (default) or "30D".
+    Returns bucketed gmv_range per video — no exact GMV. Useful for
+    trend-scouting and creator discovery.
+    """
+    client = get_shop_client(seller_name)
+    data = await get_videos_bestselling(
+        client,
+        date=date,
+        time_slot=time_slot,
+        currency=currency,
+    )
+    return json.dumps(
+        {
+            "success": True,
+            "seller_name": client.shop.seller_name,
+            "date": date,
+            "time_slot": time_slot,
+            "data": data,
+        },
+        indent=2,
+    )
+
+
+@app.tool()
+@handle_errors
+async def get_creators_bestselling_tool(
+    date: str = "",
+    time_slot: str = "7D",
+    currency: str = "USD",
+    author_type: str = "ALL",
+    seller_name: Optional[str] = "FLYNEW SHOP",
+) -> str:
+    """Platform-wide TOP 100 bestselling creators (requires Bestsellers scope).
+
+    date: reference date YYYY-MM-DD. time_slot: "7D" (default) or "30D".
+    author_type: "ALL" / "AFFILIATE" / "OFFICIAL".
+    Returns bucketed gmv_range per creator. Use for BD outreach discovery.
+    """
+    client = get_shop_client(seller_name)
+    data = await get_creators_bestselling(
+        client,
+        date=date,
+        time_slot=time_slot,
+        currency=currency,
+        author_type=author_type,
+    )
+    return json.dumps(
+        {
+            "success": True,
+            "seller_name": client.shop.seller_name,
+            "date": date,
+            "time_slot": time_slot,
+            "author_type": author_type,
+            "data": data,
+        },
+        indent=2,
+    )
+
+
+@app.tool()
+@handle_errors
+async def get_products_bestselling_tool(
+    date: str = "",
+    time_slot: str = "7D",
+    currency: str = "USD",
+    category_id: Optional[str] = None,
+    seller_name: Optional[str] = "FLYNEW SHOP",
+) -> str:
+    """Platform-wide TOP 100 bestselling products (requires Bestsellers scope).
+
+    date: reference date YYYY-MM-DD. time_slot: "7D" (default) or "30D".
+    category_id: optional TikTok category filter. Returns bucketed gmv_range
+    per product — use for competitor/品类趋势 scouting.
+    """
+    client = get_shop_client(seller_name)
+    data = await get_products_bestselling(
+        client,
+        date=date,
+        time_slot=time_slot,
+        currency=currency,
+        category_id=category_id,
+    )
+    return json.dumps(
+        {
+            "success": True,
+            "seller_name": client.shop.seller_name,
+            "date": date,
+            "time_slot": time_slot,
+            "category_id": category_id,
+            "data": data,
+        },
+        indent=2,
+    )
+
+
 # ─── Token Management ───
 
 
@@ -681,6 +825,115 @@ async def refresh_all_tokens_tool(random_string: str = "") -> str:
         },
         indent=2,
     )
+
+
+@app.tool()
+async def upload_image_tool(
+    image_path: Optional[str] = None,
+    image_base64: Optional[str] = None,
+    image_filename: str = "image.png",
+    use_case: str = "MAIN_IMAGE",
+    seller_name: Optional[str] = None,
+) -> str:
+    """Upload a product image to TikTok Shop media library.
+
+    Returns image URI (use as image_id) and CDN URL.
+
+    Args:
+        image_path: Absolute path to local image (preferred). If provided, image_base64 ignored.
+        image_base64: Base64-encoded image bytes (alternative to image_path).
+        image_filename: Filename for multipart form (default "image.png").
+        use_case: MAIN_IMAGE | ATTRIBUTE_IMAGE | DESCRIPTION_IMAGE | CERTIFICATION_IMAGE | SIZE_CHART_IMAGE.
+        seller_name: Target shop. Defaults to first configured shop.
+    """
+    client = get_shop_client(seller_name)
+    result = await upload_image(
+        client,
+        image_path=image_path,
+        image_base64=image_base64,
+        image_filename=image_filename,
+        use_case=use_case,
+    )
+    return json.dumps(result, indent=2, ensure_ascii=False)
+
+
+@app.tool()
+async def edit_product_tool(
+    product_id: str,
+    changes: Dict[str, object],
+    dry_run: bool = True,
+    seller_name: Optional[str] = None,
+) -> str:
+    """Edit a TikTok Shop product listing. DEFAULTS TO DRY-RUN.
+
+    Returns would-be PUT payload preview by default. Set dry_run=False to commit.
+
+    Args:
+        product_id: TikTok Shop product ID to edit.
+        changes: Dict of field overrides. Allowed keys:
+            - title (str)
+            - description (str, HTML)
+            - main_images (list of uri strings or {"uri": "..."} dicts)
+            - search_terms (list of str)
+            - skus (list — full SKU objects from get_product_detail)
+            - product_attributes (list)
+            - package_weight (dict {"unit":"POUND","value":"0.55"})
+            - package_dimensions (dict {"unit":"INCH","length":"4","width":"4","height":"4"})
+            - is_cod_allowed / is_not_for_sale / is_pre_owned (bool)
+            - shipping_insurance_requirement (str)
+            - category_id (str, leaf only)
+            - brand (dict {"id":"...","name":"..."})
+        dry_run: If True (default), returns payload preview without sending PUT.
+                 Set to False to actually commit. ALWAYS dry-run first to verify payload.
+        seller_name: Target shop. Defaults to first configured shop.
+    """
+    client = get_shop_client(seller_name)
+    result = await edit_product(
+        client,
+        product_id=product_id,
+        changes=changes,
+        dry_run=dry_run,
+    )
+    return json.dumps(result, indent=2, ensure_ascii=False, default=str)
+
+
+@app.tool()
+async def clone_product_tool(
+    source_product_id: str,
+    overrides: Dict[str, object],
+    sku_seller_sku_suffix: str = "-clone",
+    dry_run: bool = True,
+    seller_name: Optional[str] = None,
+) -> str:
+    """Clone an existing TikTok Shop product listing (GET source + POST Create).
+
+    TikTok Shop has NO native Clone endpoint — this emulates by fetching the source
+    listing and POSTing a new product with select field overrides.
+
+    DEFAULTS TO DRY-RUN. Set dry_run=False to actually create the new listing.
+
+    Args:
+        source_product_id: ID of listing to clone from.
+        overrides: Dict of field overrides applied on top of source. Common:
+            - title (str): typically required (each clone needs unique SEO title)
+            - main_images (list of uri strings): typically slot 1 differs
+            - search_terms (list of str)
+            - description (str, HTML)
+        sku_seller_sku_suffix: Suffix appended to source seller_sku (e.g., '-b'
+            → 'nad+1-b'). Required because seller_sku must be unique per shop.
+            Default '-clone'.
+        dry_run: If True (default), returns POST payload preview without sending.
+        seller_name: Target shop. Defaults to first configured shop.
+    """
+    client = get_shop_client(seller_name)
+    result = await clone_product(
+        client,
+        source_product_id=source_product_id,
+        overrides=overrides,
+        sku_seller_sku_suffix=sku_seller_sku_suffix,
+        dry_run=dry_run,
+    )
+    return json.dumps(result, indent=2, ensure_ascii=False, default=str)
 
 
 def main():
