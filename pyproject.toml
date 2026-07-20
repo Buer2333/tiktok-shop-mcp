@@ -4,22 +4,55 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tiktok-shop-mcp"
-version = "0.1.0"
-description = "Model Context Protocol (MCP) server for TikTok Shop API - orders, finance, and products"
-readme = {text = "TikTok Shop MCP Server", content-type = "text/plain"}
+version = "0.2.0"
+description = "Model Context Protocol (MCP) server for the TikTok Shop Partner API - multi-shop orders, finance, products, and analytics"
+readme = "README.md"
+authors = [
+  { name = "Buer2333", email = "13869438+Buer2333@users.noreply.github.com" },
+]
 license = {text = "MIT"}
 requires-python = ">=3.10"
-keywords = ["tiktok", "shop", "mcp", "api", "ecommerce"]
+keywords = ["tiktok", "tiktok-shop", "mcp", "model-context-protocol", "api", "ecommerce", "claude"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Office/Business",
+]
 
 dependencies = [
     "python-dotenv>=1.0.0",
     "mcp>=1.9.0",
     "httpx>=0.27.0",
-    "mcp-retry @ git+https://github.com/Buer2333/mcp-retry.git",
+    "mcp-retry>=0.1.0",
 ]
 
-[tool.hatch.metadata]
-allow-direct-references = true
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "build>=1.0.0",
+    "twine>=4.0.0",
+]
 
 [project.scripts]
 tiktok-shop-mcp = "tiktok_shop_mcp.main:cli"
+
+[project.urls]
+Homepage = "https://github.com/Buer2333/tiktok-shop-mcp"
+Repository = "https://github.com/Buer2333/tiktok-shop-mcp"
+"Bug Tracker" = "https://github.com/Buer2333/tiktok-shop-mcp/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tiktok_shop_mcp"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/tiktok_shop_mcp",
+    "/README.md",
+    "/LICENSE",
+    "/pyproject.toml",
+]
