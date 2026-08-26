@@ -11,7 +11,10 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Dict, List, Optional
 
-from mcp.server import FastMCP
+try:  # mcp>=2: FastMCP 改名 MCPServer，mcp.server.fastmcp 变成只抛错的桩
+    from mcp.server.mcpserver import MCPServer as FastMCP
+except ImportError:  # mcp<2
+    from mcp.server.fastmcp import FastMCP
 
 from .client import TikTokShopClient
 from .config import config
