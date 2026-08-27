@@ -38,6 +38,13 @@ cd tiktok-shop-mcp
 pip install -e .
 ```
 
+### Compatibility
+
+Works with both `mcp` 1.x and 2.x. mcp 2.0 renamed `FastMCP` to `MCPServer`
+(`mcp.server.mcpserver`) and turned `mcp.server.fastmcp` into a raising stub;
+`server.py` imports via a try-v2-except-v1 shim, so no pin is required
+(`mcp>=1.9.0`). Tests pass on 1.28.1 and 2.1.1.
+
 ## Configuration
 
 Credentials live in a JSON file **outside the repo** (default `~/.config/tiktok-mcp/shops.json`, override with the `TIKTOK_SHOP_CONFIG` env var):
