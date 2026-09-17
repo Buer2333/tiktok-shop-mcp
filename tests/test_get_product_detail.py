@@ -42,8 +42,8 @@ SAMPLE_PRODUCT = {
         },
     ],
     "main_images": [
-        {"url": "https://example.com/img1.jpg"},
-        {"url": "https://example.com/img2.jpg"},
+        {"uri": "tos-maliva-i-o3syd03w52-us/img1", "width": 800, "height": 800},
+        {"uri": "tos-maliva-i-o3syd03w52-us/img2", "width": 800, "height": 600},
     ],
     "category_chains": [
         {
@@ -83,7 +83,10 @@ async def test_basic_product_detail():
     assert sku2["price"]["sale_price"] == "25.99"
     assert sku2["stock"] == 4564
 
-    assert len(result["main_images"]) == 2
+    assert result["main_images"] == [
+        {"uri": "tos-maliva-i-o3syd03w52-us/img1", "width": 800, "height": 800},
+        {"uri": "tos-maliva-i-o3syd03w52-us/img2", "width": 800, "height": 600},
+    ]
     assert result["category"] == "Health > Supplements"
 
     client._make_request.assert_called_once_with(
@@ -202,8 +205,8 @@ async def test_custom_value_sales_attributes():
 
 
 @pytest.mark.asyncio
-async def test_images_with_empty_urls():
-    """Images list with some missing URLs should be filtered out."""
+async def test_images_with_empty_uris():
+    """Images with a missing or empty uri should be filtered out."""
     client = AsyncMock()
     client._make_request.return_value = _make_response(
         {
@@ -211,14 +214,18 @@ async def test_images_with_empty_urls():
             "title": "Mixed Images",
             "skus": [],
             "main_images": [
-                {"url": "https://img1.jpg"},
-                {"url": ""},
-                {"url": None},
-                {"url": "https://img2.jpg"},
+                {"uri": "tos/img1"},
+                {"uri": ""},
+                {"uri": None},
+                {"url": "https://legacy-shape-without-uri.jpg"},
+                {"uri": "tos/img2", "width": 100, "height": 50},
             ],
         }
     )
 
     result = await get_product_detail(client, product_id="202")
 
-    assert result["main_images"] == ["https://img1.jpg", "https://img2.jpg"]
+    assert result["main_images"] == [
+        {"uri": "tos/img1", "width": None, "height": None},
+        {"uri": "tos/img2", "width": 100, "height": 50},
+    ]
