@@ -1,49 +1,72 @@
 """Configuration management for TikTok Shop MCP Server (multi-shop)"""
 
-import json
-import os
 import logging
+import os
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
+
+from .shops_file import (
+    DEFAULT_CONFIG_PATH,
+    read_shops,
+    resolve_shops_path,
+    update_shop_on_disk,
+)
 
 logger = logging.getLogger(__name__)
 
-# Default config path: ~/.config/tiktok-mcp/shops.json
-DEFAULT_CONFIG_PATH = Path.home() / ".config" / "tiktok-mcp" / "shops.json"
-
-
-def resolve_shops_path() -> Path:
-    """Resolve the shops.json path.
-
-    Priority:
-    1. TIKTOK_SHOP_CONFIG env var (explicit path)
-    2. ~/.config/tiktok-mcp/shops.json (standard config dir)
-
-    There is deliberately no project-local fallback: a shops.json next to the
-    code can end up in a synced folder or a commit.
-    """
-    env_path = os.getenv("TIKTOK_SHOP_CONFIG")
-    if env_path:
-        return Path(env_path)
-
-    return DEFAULT_CONFIG_PATH
+__all__ = [
+    "DEFAULT_CONFIG_PATH",
+    "resolve_shops_path",
+    "ShopCredentials",
+    "TikTokShopConfig",
+    "config",
+]
 
 
 class ShopCredentials:
     """Credentials for a single TikTok Shop."""
 
-    def __init__(self, data: Dict[str, str]):
+    # Fields the server itself rotates and persists back to shops.json.
+    TOKEN_FIELDS = ("access_token", "refresh_token", "access_token_expire_at")
+
+    def __init__(self, data: Dict[str, Any]):
         self.seller_name: str = data["seller_name"]
-        self.seller_base_region: str = data.get("seller_base_region", "US")
         self.app_key: str = data["app_key"]
         self.app_secret: str = data["app_secret"]
-        self.open_id: str = data.get("open_id", "")
         self.access_token: str = data["access_token"]
+        self.update_from(data)
+
+    def update_from(self, data: Dict[str, Any]) -> None:
+        """Apply an on-disk record to this object in place."""
+        self.seller_base_region: str = data.get("seller_base_region", "US")
+        self.app_key = data.get("app_key", self.app_key)
+        self.app_secret = data.get("app_secret", self.app_secret)
+        self.open_id: str = data.get("open_id", "")
+        self.access_token = data.get("access_token", self.access_token)
         self.refresh_token: str = data.get("refresh_token", "")
         self.access_token_expire_at: str = data.get("access_token_expire_at", "")
         self.refresh_token_expire_at: str = data.get("refresh_token_expire_at", "")
         self.shop_id: str = data.get("shop_id", "")
         self.shop_cipher: str = data.get("shop_cipher", "")
+
+    def to_record(self) -> Dict[str, Any]:
+        """Full on-disk representation, used only when creating a new entry."""
+        return {
+            "seller_name": self.seller_name,
+            "seller_base_region": self.seller_base_region,
+            "app_key": self.app_key,
+            "app_secret": self.app_secret,
+            "open_id": self.open_id,
+            "access_token": self.access_token,
+            "refresh_token": self.refresh_token,
+            "access_token_expire_at": self.access_token_expire_at,
+            "refresh_token_expire_at": self.refresh_token_expire_at,
+            "shop_id": self.shop_id,
+            "shop_cipher": self.shop_cipher,
+        }
+
+    def token_fields(self) -> Dict[str, Any]:
+        return {name: getattr(self, name) for name in self.TOKEN_FIELDS}
 
 
 class TikTokShopConfig:
@@ -66,17 +89,26 @@ class TikTokShopConfig:
             return
 
         try:
-            with open(self._shops_path) as f:
-                shops_data = json.load(f)
-
-            for shop_data in shops_data:
-                name = shop_data.get("seller_name", "")
-                if name:
-                    self.shops[name] = ShopCredentials(shop_data)
-
+            self._apply_records(read_shops(self._shops_path))
             logger.info(f"Loaded {len(self.shops)} shops from {self._shops_path}")
         except Exception as e:
             logger.error(f"Failed to load shops.json: {e}")
+
+    def _apply_records(self, records: List[Dict[str, Any]]) -> None:
+        """Bring in-memory credentials in line with on-disk records.
+
+        Existing ShopCredentials objects are updated in place because clients
+        hold references to them; new shops are added.
+        """
+        for record in records:
+            name = record.get("seller_name", "")
+            if not name:
+                continue
+            existing = self.shops.get(name)
+            if existing is None:
+                self.shops[name] = ShopCredentials(record)
+            else:
+                existing.update_from(record)
 
     def get_shop(self, seller_name: Optional[str] = None) -> ShopCredentials:
         """Get credentials for a specific shop, or the first available shop."""
@@ -112,37 +144,23 @@ class TikTokShopConfig:
             for s in self.shops.values()
         ]
 
-    def save_shops(self):
-        """Save current shop credentials back to shops.json."""
-        shops_data = []
-        for s in self.shops.values():
-            shops_data.append(
-                {
-                    "seller_name": s.seller_name,
-                    "seller_base_region": s.seller_base_region,
-                    "app_key": s.app_key,
-                    "app_secret": s.app_secret,
-                    "open_id": s.open_id,
-                    "access_token": s.access_token,
-                    "refresh_token": s.refresh_token,
-                    "access_token_expire_at": s.access_token_expire_at,
-                    "refresh_token_expire_at": s.refresh_token_expire_at,
-                    "shop_id": s.shop_id,
-                    "shop_cipher": s.shop_cipher,
-                }
-            )
+    def save_shop(self, seller_name: str) -> None:
+        """Persist one shop's rotated tokens to shops.json.
 
-        # Owner-only perms, written to a temp file and renamed so a crash
-        # mid-write never leaves a truncated or world-readable credentials file.
-        self._shops_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        tmp_path = self._shops_path.with_suffix(".json.tmp")
-        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            json.dump(shops_data, f, indent=2)
-        os.chmod(tmp_path, 0o600)
-        os.replace(tmp_path, self._shops_path)
-
-        logger.info(f"Saved {len(shops_data)} shops to {self._shops_path}")
+        Only that shop's token fields are written; everything else on disk is
+        left alone, so tokens another process (the cron refresher, a setup
+        script) rotated since startup are never overwritten. Afterwards the
+        in-memory copies of all shops are refreshed from what is now on disk.
+        """
+        creds = self.shops[seller_name]
+        records = update_shop_on_disk(
+            self._shops_path,
+            seller_name,
+            creds.token_fields(),
+            default=creds.to_record(),
+        )
+        self._apply_records(records)
+        logger.info(f"Saved tokens for {seller_name} to {self._shops_path}")
 
 
 config = TikTokShopConfig()
