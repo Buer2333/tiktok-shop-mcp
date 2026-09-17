@@ -37,6 +37,7 @@ from .tools import (
     get_products_bestselling,
     search_returns,
     search_cancellations,
+    get_customer_service_performance,
 )
 
 logging.basicConfig(level=logging.INFO)
