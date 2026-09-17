@@ -26,8 +26,12 @@ Built for sellers and agencies who operate TikTok Shops and want their AI assist
 
 ## Installation
 
-Install from source into a virtualenv, with the exact dependency versions this
-branch was checked against:
+```bash
+pip install tiktok-shop-mcp
+```
+
+Or from source, into a virtualenv, with the direct dependencies pinned to the
+versions the tests run against:
 
 ```bash
 git clone https://github.com/Buer2333/tiktok-shop-mcp.git
@@ -37,9 +41,11 @@ python3 -m venv .venv
 .venv/bin/pip install --no-deps -e .
 ```
 
-`requirements.txt` pins every runtime dependency to an exact version, including
-`mcp-retry`, which wraps every API call and so sees your tokens. Bump a pin only
-after reading what changed in that release.
+`requirements.txt` pins the direct runtime dependencies to exact versions,
+including `mcp-retry`, which wraps every API call and so sees your tokens.
+Transitive dependencies (pydantic, starlette, and so on) are not pinned; for a
+fully reproducible install, generate a lock file with `pip-compile
+--generate-hashes`. Bump a pin only after reading what changed in that release.
 
 ### Compatibility
 
@@ -56,7 +62,7 @@ Credentials live in a JSON file **outside the repo** (default `~/.config/tiktok-
 chmod 700 ~/.config/tiktok-mcp && chmod 600 ~/.config/tiktok-mcp/shops.json
 ```
 
-The setup scripts leave token backups (`shops.json.bak.*` and a `recovery/` folder) next to it; delete them once your shops are working.
+The setup scripts leave token backups (`shops.json.bak.*` and a `recovery/` folder) next to it; delete them once your shops are working. A small `shops.json.lock` file also lives there; it is how the server, the cron refresher, and the setup scripts avoid writing the file at the same time, so leave it be.
 
 ```json
 [
