@@ -18,23 +18,13 @@ def resolve_shops_path() -> Path:
     Priority:
     1. TIKTOK_SHOP_CONFIG env var (explicit path)
     2. ~/.config/tiktok-mcp/shops.json (standard config dir)
-    3. Project-local shops.json (legacy fallback)
+
+    There is deliberately no project-local fallback: a shops.json next to the
+    code can end up in a synced folder or a commit.
     """
     env_path = os.getenv("TIKTOK_SHOP_CONFIG")
     if env_path:
         return Path(env_path)
-
-    if DEFAULT_CONFIG_PATH.exists():
-        return DEFAULT_CONFIG_PATH
-
-    # Legacy fallback: project directory
-    legacy_path = Path(__file__).parent.parent / "shops.json"
-    if legacy_path.exists():
-        logger.warning(
-            f"Using legacy shops.json at {legacy_path}. "
-            f"Consider moving it to {DEFAULT_CONFIG_PATH}"
-        )
-        return legacy_path
 
     return DEFAULT_CONFIG_PATH
 
@@ -142,8 +132,15 @@ class TikTokShopConfig:
                 }
             )
 
-        with open(self._shops_path, "w") as f:
+        # Owner-only perms, written to a temp file and renamed so a crash
+        # mid-write never leaves a truncated or world-readable credentials file.
+        self._shops_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        tmp_path = self._shops_path.with_suffix(".json.tmp")
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
             json.dump(shops_data, f, indent=2)
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, self._shops_path)
 
         logger.info(f"Saved {len(shops_data)} shops to {self._shops_path}")
 

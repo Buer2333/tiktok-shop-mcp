@@ -29,15 +29,10 @@ DEFAULT_CONFIG_PATH = Path.home() / ".config" / "tiktok-mcp" / "shops.json"
 
 
 def resolve_shops_path() -> Path:
-    """Resolve shops.json path: env var > ~/.config > project-local."""
+    """Resolve shops.json path: env var > ~/.config. No project-local fallback."""
     env_path = os.environ.get("TIKTOK_SHOP_CONFIG")
     if env_path:
         return Path(env_path)
-    if DEFAULT_CONFIG_PATH.exists():
-        return DEFAULT_CONFIG_PATH
-    legacy = Path(__file__).parent / "shops.json"
-    if legacy.exists():
-        return legacy
     return DEFAULT_CONFIG_PATH
 
 
@@ -116,9 +111,13 @@ def main():
             logger.error(f"  [FAIL] {name} — {e}")
             failed += 1
 
-    # Save back
-    with open(SHOPS_FILE, "w") as f:
+    # Save back: owner-only perms, temp file + rename so a crash never truncates it
+    tmp_path = SHOPS_FILE.with_suffix(".json.tmp")
+    fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         json.dump(shops, f, indent=2)
+    os.chmod(tmp_path, 0o600)
+    os.replace(tmp_path, SHOPS_FILE)
 
     logger.info(f"Done: {success} refreshed, {failed} failed")
 
