@@ -39,7 +39,7 @@ async def get_statements(
     if create_time_lt is not None:
         params["create_time_lt"] = str(create_time_lt)
     if next_page_token:
-        params["next_page_token"] = next_page_token
+        params["page_token"] = next_page_token
 
     try:
         response = await client._make_request(

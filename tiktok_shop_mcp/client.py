@@ -5,6 +5,7 @@ import hashlib
 import json
 import time
 import logging
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 
 import httpx
@@ -189,17 +190,22 @@ class TikTokShopClient:
             new_access_token = data.get("access_token", "")
             new_refresh_token = data.get("refresh_token", "")
 
+            expire_in = data.get("access_token_expire_in")
+
             if new_access_token:
                 self.shop.access_token = new_access_token
             if new_refresh_token:
                 self.shop.refresh_token = new_refresh_token
+            if expire_in:
+                expire_at = datetime.now() + timedelta(seconds=int(expire_in))
+                self.shop.access_token_expire_at = expire_at.isoformat()
 
-            # Persist to shops.json
-            config.save_shops()
+            # Persist only this shop's tokens to shops.json
+            config.save_shop(self.shop.seller_name)
 
             return {
                 "seller_name": self.shop.seller_name,
                 "access_token": new_access_token,
                 "refresh_token": new_refresh_token,
-                "expire_in": data.get("access_token_expire_in"),
+                "expire_in": expire_in,
             }

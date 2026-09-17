@@ -39,7 +39,7 @@ async def get_orders(
         "page_size": str(min(page_size, 50)),
     }
     if next_page_token:
-        params["next_page_token"] = next_page_token
+        params["page_token"] = next_page_token
     if sort_field:
         params["sort_field"] = sort_field
     if sort_order:

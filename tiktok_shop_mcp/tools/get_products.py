@@ -28,7 +28,7 @@ async def get_products(
         "page_size": str(min(page_size, 100)),
     }
     if next_page_token:
-        params["next_page_token"] = next_page_token
+        params["page_token"] = next_page_token
 
     body: Dict[str, Any] = {}
     if status:

@@ -5,13 +5,9 @@ Can be run manually or via cron/launchd.
 Reads shops.json, refreshes each token via TikTok auth API, saves back.
 """
 
-import json
-import hmac
-import hashlib
-import time
 import sys
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import os
@@ -25,21 +21,13 @@ os.environ.pop("https_proxy", None)
 os.environ.pop("HTTP_PROXY", None)
 os.environ.pop("http_proxy", None)
 
-DEFAULT_CONFIG_PATH = Path.home() / ".config" / "tiktok-mcp" / "shops.json"
-
-
-def resolve_shops_path() -> Path:
-    """Resolve shops.json path: env var > ~/.config > project-local."""
-    env_path = os.environ.get("TIKTOK_SHOP_CONFIG")
-    if env_path:
-        return Path(env_path)
-    if DEFAULT_CONFIG_PATH.exists():
-        return DEFAULT_CONFIG_PATH
-    legacy = Path(__file__).parent / "shops.json"
-    if legacy.exists():
-        return legacy
-    return DEFAULT_CONFIG_PATH
-
+# Shared shops.json helpers live in the package next to this script
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from tiktok_shop_mcp.shops_file import (  # noqa: E402
+    read_shops,
+    resolve_shops_path,
+    update_shop_on_disk,
+)
 
 SHOPS_FILE = resolve_shops_path()
 AUTH_URL = "https://auth.tiktok-shops.com/api/v2/token/refresh"
@@ -57,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 
 def refresh_one(shop: dict) -> dict:
-    """Refresh token for a single shop. Returns updated shop dict."""
+    """Refresh token for a single shop. Returns only the fields that changed."""
     name = shop["seller_name"]
     params = {
         "app_key": shop["app_key"],
@@ -77,21 +65,17 @@ def refresh_one(shop: dict) -> dict:
     new_refresh = data.get("refresh_token", "")
     expire_in = data.get("access_token_expire_in", 0)
 
+    changed = {"updated_at": datetime.now().isoformat()}
     if new_access:
-        shop["access_token"] = new_access
+        changed["access_token"] = new_access
     if new_refresh:
-        shop["refresh_token"] = new_refresh
-
-    # Update expiry timestamp
+        changed["refresh_token"] = new_refresh
     if expire_in:
-        from datetime import timedelta
         expire_at = datetime.now() + timedelta(seconds=expire_in)
-        shop["access_token_expire_at"] = expire_at.isoformat()
-
-    shop["updated_at"] = datetime.now().isoformat()
+        changed["access_token_expire_at"] = expire_at.isoformat()
 
     logger.info(f"  [OK] {name} — expires in {expire_in}s")
-    return shop
+    return changed
 
 
 def main():
@@ -99,8 +83,7 @@ def main():
         logger.error(f"shops.json not found at {SHOPS_FILE}")
         sys.exit(1)
 
-    with open(SHOPS_FILE) as f:
-        shops = json.load(f)
+    shops = read_shops(SHOPS_FILE)
 
     logger.info(f"Refreshing tokens for {len(shops)} shops...")
 
@@ -110,15 +93,15 @@ def main():
     for shop in shops:
         name = shop.get("seller_name", "?")
         try:
-            refresh_one(shop)
+            changed = refresh_one(shop)
+            # Write this shop's new tokens immediately, merging into whatever
+            # is on disk now, so a crash later in the loop or a concurrent
+            # refresh from the MCP server can't lose them.
+            update_shop_on_disk(SHOPS_FILE, name, changed)
             success += 1
         except Exception as e:
             logger.error(f"  [FAIL] {name} — {e}")
             failed += 1
-
-    # Save back
-    with open(SHOPS_FILE, "w") as f:
-        json.dump(shops, f, indent=2)
 
     logger.info(f"Done: {success} refreshed, {failed} failed")
 

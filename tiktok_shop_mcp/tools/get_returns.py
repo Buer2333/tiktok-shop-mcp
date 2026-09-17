@@ -28,7 +28,7 @@ async def search_returns(
         "page_size": str(min(page_size, 50)),
     }
     if next_page_token:
-        params["next_page_token"] = next_page_token
+        params["page_token"] = next_page_token
 
     body: Dict[str, Any] = {}
     if create_time_ge is not None:
@@ -101,7 +101,7 @@ async def search_cancellations(
         "page_size": str(min(page_size, 50)),
     }
     if next_page_token:
-        params["next_page_token"] = next_page_token
+        params["page_token"] = next_page_token
 
     body: Dict[str, Any] = {}
     if create_time_ge is not None:
