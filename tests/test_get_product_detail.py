@@ -42,8 +42,9 @@ SAMPLE_PRODUCT = {
         },
     ],
     "main_images": [
-        {"url": "https://example.com/img1.jpg"},
-        {"url": "https://example.com/img2.jpg"},
+        # 真实 API 返回 uri（TOS 路径）而非 url——ab4ec24（2026-06-21）起工具按 uri 输出
+        {"uri": "tos-useast5/img1", "width": 1600, "height": 1600},
+        {"uri": "tos-useast5/img2", "width": 1600, "height": 1600},
     ],
     "category_chains": [
         {
@@ -83,7 +84,10 @@ async def test_basic_product_detail():
     assert sku2["price"]["sale_price"] == "25.99"
     assert sku2["stock"] == 4564
 
-    assert len(result["main_images"]) == 2
+    assert result["main_images"] == [
+        {"uri": "tos-useast5/img1", "width": 1600, "height": 1600},
+        {"uri": "tos-useast5/img2", "width": 1600, "height": 1600},
+    ]
     assert result["category"] == "Health > Supplements"
 
     client._make_request.assert_called_once_with(
@@ -203,7 +207,7 @@ async def test_custom_value_sales_attributes():
 
 @pytest.mark.asyncio
 async def test_images_with_empty_urls():
-    """Images list with some missing URLs should be filtered out."""
+    """Images list with some missing uris should be filtered out."""
     client = AsyncMock()
     client._make_request.return_value = _make_response(
         {
@@ -211,14 +215,14 @@ async def test_images_with_empty_urls():
             "title": "Mixed Images",
             "skus": [],
             "main_images": [
-                {"url": "https://img1.jpg"},
-                {"url": ""},
-                {"url": None},
-                {"url": "https://img2.jpg"},
+                {"uri": "tos/img1"},
+                {"uri": ""},
+                {"uri": None},
+                {"uri": "tos/img2"},
             ],
         }
     )
 
     result = await get_product_detail(client, product_id="202")
 
-    assert result["main_images"] == ["https://img1.jpg", "https://img2.jpg"]
+    assert [i["uri"] for i in result["main_images"]] == ["tos/img1", "tos/img2"]

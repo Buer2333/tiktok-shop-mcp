@@ -28,7 +28,7 @@ async def search_returns(
         "page_size": str(min(page_size, 50)),
     }
     if next_page_token:
-        params["next_page_token"] = next_page_token
+        params["page_token"] = next_page_token  # 202309 只认 page_token，传 next_page_token 会静默返回第一页（2026-10-08 实测）
 
     body: Dict[str, Any] = {}
     if create_time_ge is not None:
@@ -101,7 +101,7 @@ async def search_cancellations(
         "page_size": str(min(page_size, 50)),
     }
     if next_page_token:
-        params["next_page_token"] = next_page_token
+        params["page_token"] = next_page_token  # 202309 只认 page_token，传 next_page_token 会静默返回第一页（2026-10-08 实测）
 
     body: Dict[str, Any] = {}
     if create_time_ge is not None:
