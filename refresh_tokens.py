@@ -54,6 +54,10 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger(__name__)
+# httpx 在 INFO 级别会打印完整请求 URL，而刷新接口把 app_secret / refresh_token 放在 query 里——
+# 不压到 WARNING 就会把密钥明文写进 refresh.log（2026-10-08 发现两台机器的日志里各有数百行）。
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 def refresh_one(shop: dict) -> dict:
