@@ -81,6 +81,8 @@ The setup scripts leave token backups (`shops.json.bak.*` and a `recovery/` fold
 
 You get `app_key` / `app_secret` by creating an app on the [TikTok Shop Partner Center](https://partner.tiktokshop.com), then authorize your shop(s) to obtain tokens. `shop_id` / `shop_cipher` are returned by the authorized-shops endpoint; the bundled `probe_authorized_shops.py` script can fetch them for you.
 
+The three `*_bestselling` tools need a shop whose app has the Bestsellers scope. The lists are platform-wide, so one such shop is enough: set `TIKTOK_SHOP_BESTSELLERS_SHOP` to its `seller_name` (partial match OK) and the tools use it whenever `seller_name` is omitted. Without it they fall back to the first shop in `shops.json`.
+
 ### Claude Code
 
 ```bash

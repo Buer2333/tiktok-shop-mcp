@@ -7,6 +7,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 export TIKTOK_SHOP_CONFIG="${CREDENTIALS_DIR}/shops.json"
 
+# Optional per-machine settings (e.g. TIKTOK_SHOP_BESTSELLERS_SHOP), kept out of the repo
+if [ -f "${CREDENTIALS_DIR}/shop.env" ]; then
+    set -a; . "${CREDENTIALS_DIR}/shop.env"; set +a
+fi
+
 # Clear proxy env to avoid SOCKS interference
 unset ALL_PROXY all_proxy HTTP_PROXY http_proxy HTTPS_PROXY https_proxy 2>/dev/null || true
 
