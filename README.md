@@ -1,5 +1,7 @@
 # tiktok-shop-mcp
 
+<!-- mcp-name: io.github.Buer2333/tiktok-shop-mcp -->
+
 A [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for the **TikTok Shop Partner API** — query orders, finance, products, analytics, and affiliate performance across multiple shops from Claude, or any other MCP client.
 
 Built for sellers and agencies who operate TikTok Shops and want their AI assistant to answer questions like *"what did the US shop sell yesterday?"*, *"which SKUs are trending this week?"*, or *"pull the settlement statements for June"* — directly against the official API, with no browser scraping.

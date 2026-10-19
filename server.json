@@ -1,0 +1,39 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Buer2333/tiktok-shop-mcp",
+  "title": "TikTok Shop",
+  "description": "Read-only TikTok Shop Partner API: orders, finance, products and analytics across shops.",
+  "repository": {
+    "url": "https://github.com/Buer2333/tiktok-shop-mcp",
+    "source": "github"
+  },
+  "version": "0.3.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "tiktok-shop-mcp",
+      "version": "0.3.0",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "TIKTOK_SHOP_CONFIG",
+          "description": "Path to shops.json (default ~/.config/tiktok-mcp/shops.json)",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "filepath"
+        },
+        {
+          "name": "TIKTOK_SHOP_BESTSELLERS_SHOP",
+          "description": "Shop used by the bestselling tools when seller_name is omitted",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}
