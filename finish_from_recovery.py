@@ -8,8 +8,6 @@ Usage:
 
 import argparse
 import json
-import os
-import shutil
 import sys
 import time
 from datetime import datetime, timezone, timedelta
@@ -17,10 +15,17 @@ from pathlib import Path
 
 import httpx
 
-sys.path.insert(0, "/Users/shining/claude-dev/mcp/tiktok-shop")
-from tiktok_shop_mcp.client import generate_sign  # type: ignore
+# Shared shops.json helpers live in the package next to this script
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from tiktok_shop_mcp.shops_file import (  # noqa: E402
+    read_shops,
+    resolve_shops_path,
+    write_shops_atomic,
+)
 
-CONFIG_PATH = Path.home() / ".config" / "tiktok-mcp" / "shops.json"
+from tiktok_shop_mcp.client import generate_sign  # noqa: E402
+
+CONFIG_PATH = resolve_shops_path()
 SHOP_BASE = "https://open-api.tiktokglobalshop.com"
 
 
@@ -31,9 +36,8 @@ def fmt_expire(seconds_from_now):
     return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
-def load_shops():
-    with open(CONFIG_PATH) as f:
-        return json.load(f)
+def load_shops() -> list[dict]:
+    return read_shops(CONFIG_PATH)
 
 
 def get_app_secret(shops, app_key):
@@ -60,16 +64,10 @@ def list_shops_via_api(token, app_key, app_secret):
     return body.get("data", {}).get("shops", []) or []
 
 
-def atomic_write(shops):
-    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    bak = CONFIG_PATH.with_suffix(f".json.bak.{ts}")
-    tmp = CONFIG_PATH.with_suffix(".json.tmp")
-    shutil.copy2(CONFIG_PATH, bak)
-    with open(tmp, "w") as f:
-        json.dump(shops, f, indent=2)
-    os.chmod(tmp, 0o600)
-    os.rename(tmp, CONFIG_PATH)
-    print(f"  💾 backup saved: {bak.name}")
+def atomic_write(shops: list[dict]):
+    bak = write_shops_atomic(CONFIG_PATH, shops, backup=True)
+    if bak:
+        print(f"  💾 backup saved: {bak.name}")
 
 
 def find_existing_index(shops, data, app_key, shop_list):

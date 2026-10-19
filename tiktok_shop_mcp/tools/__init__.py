@@ -18,9 +18,6 @@ from .get_analytics import (
 )
 from .get_returns import search_returns, search_cancellations
 from .get_customer_service import get_customer_service_performance
-from .upload_image import upload_image
-from .edit_product import edit_product
-from .clone_product import clone_product
 
 __all__ = [
     "get_orders",
@@ -42,7 +39,4 @@ __all__ = [
     "search_returns",
     "search_cancellations",
     "get_customer_service_performance",
-    "upload_image",
-    "edit_product",
-    "clone_product",
 ]

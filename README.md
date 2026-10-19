@@ -7,11 +7,11 @@ Built for sellers and agencies who operate TikTok Shops and want their AI assist
 ## Features
 
 - **Multi-shop** — configure any number of shops in one JSON file; every tool takes an optional `seller_name` (partial match) to pick the shop
-- **25 tools** covering orders, finance, product catalog, shop/video/SKU analytics, affiliate best-sellers, returns/cancellations, and product editing
+- **22 tools** covering orders, finance, product catalog, shop/video/SKU analytics, affiliate best-sellers, and returns/cancellations
 - **Human-friendly dates** — pass `start_date=2026-07-01` + an IANA timezone instead of unix timestamps; the server handles conversion
 - **Token lifecycle** — inspect expiry and refresh access tokens (single shop or all shops) without leaving the conversation
 - **Resilient by default** — all requests go through [`mcp-retry`](https://github.com/Buer2333/mcp-retry) (exponential backoff + jitter on 429/5xx/network errors)
-- **Read-mostly, opt-in writes** — the only mutating tools are explicit (`edit_product`, `clone_product`, `upload_image`); everything else is read-only
+- **Read-only against your shop** — no tool edits listings, creates products, or uploads files. The only thing the server writes is your own `shops.json`, when it refreshes tokens, with owner-only (`0600`) permissions. For defense in depth, authorize the Partner Center app with read scopes only
 
 ## Tools
 
@@ -20,7 +20,7 @@ Built for sellers and agencies who operate TikTok Shops and want their AI assist
 | Shops & auth | `list_shops` · `refresh_token` · `refresh_all_tokens` |
 | Orders | `get_shop_orders` · `get_order_detail` · `search_returns` · `search_cancellations` |
 | Finance | `get_shop_statements` · `get_shop_transactions` |
-| Products | `get_shop_products` · `get_product_detail` · `edit_product` · `clone_product` · `upload_image` |
+| Products | `get_shop_products` · `get_product_detail` |
 | Shop analytics | `get_shop_performance` · `get_shop_performance_hourly` · `get_shop_products_performance` · `get_product_performance` · `get_shop_videos_performance` · `get_sku_performance` · `get_customer_service_performance` |
 | Video & affiliate | `get_account_video_gmv` · `get_videos_bestselling` · `get_creators_bestselling` · `get_products_bestselling` |
 
@@ -30,24 +30,39 @@ Built for sellers and agencies who operate TikTok Shops and want their AI assist
 pip install tiktok-shop-mcp
 ```
 
-Or from source:
+Or from source, into a virtualenv, with the direct dependencies pinned to the
+versions the tests run against:
 
 ```bash
 git clone https://github.com/Buer2333/tiktok-shop-mcp.git
 cd tiktok-shop-mcp
-pip install -e .
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install --no-deps -e .
 ```
+
+`requirements.txt` pins the direct runtime dependencies to exact versions,
+including `mcp-retry`, which wraps every API call and so sees your tokens.
+Transitive dependencies (pydantic, starlette, and so on) are not pinned; for a
+fully reproducible install, generate a lock file with `pip-compile
+--generate-hashes`. Bump a pin only after reading what changed in that release.
 
 ### Compatibility
 
 Works with both `mcp` 1.x and 2.x. mcp 2.0 renamed `FastMCP` to `MCPServer`
 (`mcp.server.mcpserver`) and turned `mcp.server.fastmcp` into a raising stub;
-`server.py` imports via a try-v2-except-v1 shim, so no pin is required
-(`mcp>=1.9.0`). Tests pass on 1.28.1 and 2.1.1.
+`server.py` imports via a try-v2-except-v1 shim. Tests pass on 1.28.1 and 2.1.1;
+`requirements.txt` pins 2.1.1.
 
 ## Configuration
 
-Credentials live in a JSON file **outside the repo** (default `~/.config/tiktok-mcp/shops.json`, override with the `TIKTOK_SHOP_CONFIG` env var):
+Credentials live in a JSON file **outside the repo** (default `~/.config/tiktok-mcp/shops.json`, override with the `TIKTOK_SHOP_CONFIG` env var). The server never reads a `shops.json` from the project folder, so a copy there can't be picked up and synced or committed by accident. Keep the file owner-only:
+
+```bash
+chmod 700 ~/.config/tiktok-mcp && chmod 600 ~/.config/tiktok-mcp/shops.json
+```
+
+The setup scripts leave token backups (`shops.json.bak.*` and a `recovery/` folder) next to it; delete them once your shops are working. A small `shops.json.lock` file also lives there; it is how the server, the cron refresher, and the setup scripts avoid writing the file at the same time, so leave it be.
 
 ```json
 [

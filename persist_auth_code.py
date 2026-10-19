@@ -14,9 +14,6 @@ Behavior:
 Does NOT touch VPS. After all 12 done locally, scp the file out separately.
 """
 
-import json
-import os
-import shutil
 import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -24,7 +21,15 @@ from urllib.parse import urlparse, parse_qs
 
 import httpx
 
-CONFIG_PATH = Path.home() / ".config" / "tiktok-mcp" / "shops.json"
+# Shared shops.json helpers live in the package next to this script
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from tiktok_shop_mcp.shops_file import (  # noqa: E402
+    read_shops,
+    resolve_shops_path,
+    write_shops_atomic,
+)
+
+CONFIG_PATH = resolve_shops_path()
 AUTH_URL = "https://auth.tiktok-shops.com/api/v2/token/get"
 
 
@@ -38,8 +43,7 @@ def parse_callback(url: str) -> tuple[str, str]:
 
 
 def load_shops() -> list[dict]:
-    with open(CONFIG_PATH) as f:
-        return json.load(f)
+    return read_shops(CONFIG_PATH)
 
 
 def get_app_secret(shops: list[dict], app_key: str) -> str:
@@ -108,15 +112,9 @@ def find_target_index(shops: list[dict], data: dict, app_key: str) -> int:
 
 
 def atomic_write(shops: list[dict]):
-    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    bak = CONFIG_PATH.with_suffix(f".json.bak.{ts}")
-    tmp = CONFIG_PATH.with_suffix(".json.tmp")
-    shutil.copy2(CONFIG_PATH, bak)
-    with open(tmp, "w") as f:
-        json.dump(shops, f, indent=2)
-    os.chmod(tmp, 0o600)
-    os.rename(tmp, CONFIG_PATH)
-    print(f"  💾 backup saved: {bak.name}")
+    bak = write_shops_atomic(CONFIG_PATH, shops, backup=True)
+    if bak:
+        print(f"  💾 backup saved: {bak.name}")
 
 
 def main():

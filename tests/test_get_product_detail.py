@@ -42,9 +42,8 @@ SAMPLE_PRODUCT = {
         },
     ],
     "main_images": [
-        # 真实 API 返回 uri（TOS 路径）而非 url——ab4ec24（2026-06-21）起工具按 uri 输出
-        {"uri": "tos-useast5/img1", "width": 1600, "height": 1600},
-        {"uri": "tos-useast5/img2", "width": 1600, "height": 1600},
+        {"uri": "tos-maliva-i-o3syd03w52-us/img1", "width": 800, "height": 800},
+        {"uri": "tos-maliva-i-o3syd03w52-us/img2", "width": 800, "height": 600},
     ],
     "category_chains": [
         {
@@ -85,8 +84,8 @@ async def test_basic_product_detail():
     assert sku2["stock"] == 4564
 
     assert result["main_images"] == [
-        {"uri": "tos-useast5/img1", "width": 1600, "height": 1600},
-        {"uri": "tos-useast5/img2", "width": 1600, "height": 1600},
+        {"uri": "tos-maliva-i-o3syd03w52-us/img1", "width": 800, "height": 800},
+        {"uri": "tos-maliva-i-o3syd03w52-us/img2", "width": 800, "height": 600},
     ]
     assert result["category"] == "Health > Supplements"
 
@@ -206,8 +205,8 @@ async def test_custom_value_sales_attributes():
 
 
 @pytest.mark.asyncio
-async def test_images_with_empty_urls():
-    """Images list with some missing uris should be filtered out."""
+async def test_images_with_empty_uris():
+    """Images with a missing or empty uri should be filtered out."""
     client = AsyncMock()
     client._make_request.return_value = _make_response(
         {
@@ -218,11 +217,15 @@ async def test_images_with_empty_urls():
                 {"uri": "tos/img1"},
                 {"uri": ""},
                 {"uri": None},
-                {"uri": "tos/img2"},
+                {"url": "https://legacy-shape-without-uri.jpg"},
+                {"uri": "tos/img2", "width": 100, "height": 50},
             ],
         }
     )
 
     result = await get_product_detail(client, product_id="202")
 
-    assert [i["uri"] for i in result["main_images"]] == ["tos/img1", "tos/img2"]
+    assert result["main_images"] == [
+        {"uri": "tos/img1", "width": None, "height": None},
+        {"uri": "tos/img2", "width": 100, "height": 50},
+    ]

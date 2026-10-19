@@ -17,7 +17,6 @@ Behavior:
 import argparse
 import json
 import os
-import shutil
 import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -25,7 +24,15 @@ from urllib.parse import urlparse, parse_qs
 
 import httpx
 
-CONFIG_PATH = Path.home() / ".config" / "tiktok-mcp" / "shops.json"
+# Shared shops.json helpers live in the package next to this script
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from tiktok_shop_mcp.shops_file import (  # noqa: E402
+    read_shops,
+    resolve_shops_path,
+    write_shops_atomic,
+)
+
+CONFIG_PATH = resolve_shops_path()
 AUTH_URL = "https://auth.tiktok-shops.com/api/v2/token/get"
 SHOP_BASE = "https://open-api.tiktokglobalshop.com"
 RECOVERY_DIR = Path.home() / ".config" / "tiktok-mcp" / "recovery"
@@ -42,8 +49,7 @@ def parse_callback(url: str) -> tuple[str, str, str]:
 
 
 def load_shops() -> list[dict]:
-    with open(CONFIG_PATH) as f:
-        return json.load(f)
+    return read_shops(CONFIG_PATH)
 
 
 def get_app_secret(shops: list[dict], app_key: str) -> str:
@@ -99,15 +105,9 @@ def find_existing_index(shops: list[dict], data: dict, app_key: str) -> int | No
 
 
 def atomic_write(shops: list[dict]):
-    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    bak = CONFIG_PATH.with_suffix(f".json.bak.{ts}")
-    tmp = CONFIG_PATH.with_suffix(".json.tmp")
-    shutil.copy2(CONFIG_PATH, bak)
-    with open(tmp, "w") as f:
-        json.dump(shops, f, indent=2)
-    os.chmod(tmp, 0o600)
-    os.rename(tmp, CONFIG_PATH)
-    print(f"  💾 backup saved: {bak.name}")
+    bak = write_shops_atomic(CONFIG_PATH, shops, backup=True)
+    if bak:
+        print(f"  💾 backup saved: {bak.name}")
 
 
 def save_recovery(data: dict, app_key: str):
@@ -129,7 +129,6 @@ def list_shops_via_api(token: str, app_key: str, app_secret: str) -> list[dict]:
     when the token-exchange response has no shops array."""
     import time
 
-    sys.path.insert(0, "/Users/shining/claude-dev/mcp/tiktok-shop")
     from tiktok_shop_mcp.client import generate_sign  # type: ignore
 
     path = "/authorization/202309/shops"
