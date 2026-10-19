@@ -1,6 +1,6 @@
 """TikTok Shop MCP Server (multi-shop)"""
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
 
 __all__ = ["app", "main", "TikTokShopClient", "config"]
 

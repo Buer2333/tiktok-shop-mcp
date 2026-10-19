@@ -1,7 +1,9 @@
-"""Ask TikTok directly: which shops can FLYNEW SHOP's existing access_token see?
+"""List the shops each configured access_token is authorized for.
 
-If returns 9 shops → user is right, one auth covers all under same app+seller.
-If returns 1 shop  → tokens are per-shop, user's hypothesis wrong.
+For every shop in shops.json, calls /authorization/202309/shops with that
+shop's token and prints seller_name, shop_id, region and the last 6 characters
+of shop_cipher. Use it to fill in shop_id / shop_cipher for a new shop.
+Read-only; writes nothing.
 """
 
 import asyncio
@@ -46,11 +48,7 @@ async def call(token: str, app_key: str, app_secret: str, label: str):
 
 
 async def main():
-    # Test each shop's existing token to see what shops it can list
-    target_app_key = "6h4rkdpi93q92"
     for s in config.shops.values():
-        if s.app_key != target_app_key:
-            continue
         await call(
             s.access_token,
             s.app_key,
