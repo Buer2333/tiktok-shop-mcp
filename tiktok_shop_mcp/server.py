@@ -6,12 +6,13 @@ Supports multiple shops via seller_name parameter.
 
 import json
 import logging
+import os
 import functools
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Dict, List, Optional
 
-try:  # mcp>=2: FastMCP 改名 MCPServer，mcp.server.fastmcp 变成只抛错的桩
+try:  # mcp>=2 renamed FastMCP to MCPServer; mcp.server.fastmcp is now a stub that raises
     from mcp.server.mcpserver import MCPServer as FastMCP
 except ImportError:  # mcp<2
     from mcp.server.fastmcp import FastMCP
@@ -115,15 +116,15 @@ async def get_shop_orders_tool(
     sort_field: Optional[str] = None,
     sort_order: Optional[str] = None,
 ) -> str:
-    """Search TikTok Shop orders. Use seller_name to specify which shop (partial match OK, e.g. 'HIILEATHY US').
+    """Search TikTok Shop orders. Use seller_name to specify which shop (partial match OK, e.g. 'US' matches 'My Brand US').
 
     Date query options (choose one):
     - Raw unix timestamps: create_time_ge / create_time_lt
     - Human-friendly dates: start_date / end_date (YYYY-MM-DD) + timezone
 
-    timezone: IANA timezone for date conversion. Known ad account timezones:
-    - HIILEATHY Life GMVMAX → 'Etc/GMT+8' (UTC-8, Pacific)
-    - HIILEATHY US GMVMAX → 'America/New_York' (UTC-5, Eastern, default)
+    timezone: IANA timezone for date conversion. Use the timezone your
+    reporting day follows, e.g. 'Etc/GMT+8' (fixed UTC-8) or
+    'America/New_York' (default).
 
     When start_date is provided, it overrides create_time_ge/create_time_lt.
     start_date = beginning of that day in the given timezone.
@@ -658,8 +659,13 @@ async def get_account_video_gmv_tool(
 
 
 # ─── Bestsellers (v202511, platform-wide TOP 100) ───
-# Default seller_name=FLYNEW SHOP (only shop with Bestsellers scope).
-# Lists are platform-wide, so any authorized shop returns the same data.
+# Lists are platform-wide, so any shop with the Bestsellers scope returns the
+# same data. When seller_name is omitted, TIKTOK_SHOP_BESTSELLERS_SHOP picks
+# that shop; if it is unset too, the first configured shop is used.
+
+
+def _bestsellers_shop(seller_name: Optional[str]) -> Optional[str]:
+    return seller_name or os.getenv("TIKTOK_SHOP_BESTSELLERS_SHOP") or None
 
 
 @app.tool()
@@ -668,7 +674,7 @@ async def get_videos_bestselling_tool(
     date: str = "",
     time_slot: str = "7D",
     currency: str = "USD",
-    seller_name: Optional[str] = "FLYNEW SHOP",
+    seller_name: Optional[str] = None,
 ) -> str:
     """Platform-wide TOP 100 bestselling videos (requires Bestsellers scope).
 
@@ -676,7 +682,7 @@ async def get_videos_bestselling_tool(
     Returns bucketed gmv_range per video — no exact GMV. Useful for
     trend-scouting and creator discovery.
     """
-    client = get_shop_client(seller_name)
+    client = get_shop_client(_bestsellers_shop(seller_name))
     data = await get_videos_bestselling(
         client,
         date=date,
@@ -702,7 +708,7 @@ async def get_creators_bestselling_tool(
     time_slot: str = "7D",
     currency: str = "USD",
     author_type: str = "ALL",
-    seller_name: Optional[str] = "FLYNEW SHOP",
+    seller_name: Optional[str] = None,
 ) -> str:
     """Platform-wide TOP 100 bestselling creators (requires Bestsellers scope).
 
@@ -710,7 +716,7 @@ async def get_creators_bestselling_tool(
     author_type: "ALL" / "AFFILIATE" / "OFFICIAL".
     Returns bucketed gmv_range per creator. Use for BD outreach discovery.
     """
-    client = get_shop_client(seller_name)
+    client = get_shop_client(_bestsellers_shop(seller_name))
     data = await get_creators_bestselling(
         client,
         date=date,
@@ -738,15 +744,15 @@ async def get_products_bestselling_tool(
     time_slot: str = "7D",
     currency: str = "USD",
     category_id: Optional[str] = None,
-    seller_name: Optional[str] = "FLYNEW SHOP",
+    seller_name: Optional[str] = None,
 ) -> str:
     """Platform-wide TOP 100 bestselling products (requires Bestsellers scope).
 
     date: reference date YYYY-MM-DD. time_slot: "7D" (default) or "30D".
     category_id: optional TikTok category filter. Returns bucketed gmv_range
-    per product — use for competitor/品类趋势 scouting.
+    per product — use for competitor and category-trend scouting.
     """
-    client = get_shop_client(seller_name)
+    client = get_shop_client(_bestsellers_shop(seller_name))
     data = await get_products_bestselling(
         client,
         date=date,
