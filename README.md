@@ -85,6 +85,23 @@ You get `app_key` / `app_secret` by creating an app on the [TikTok Shop Partner 
 
 The three `*_bestselling` tools need a shop whose app has the Bestsellers scope. The lists are platform-wide, so one such shop is enough: set `TIKTOK_SHOP_BESTSELLERS_SHOP` to its `seller_name` (partial match OK) and the tools use it whenever `seller_name` is omitted. Without it they fall back to the first shop in `shops.json`.
 
+### Adding a shop
+
+```bash
+TIKTOK_SHOP_APP_SECRET=... .venv/bin/python add_or_update_shop.py "<full_callback_url>" --seller-name "MY SHOP"
+```
+
+`TIKTOK_SHOP_APP_SECRET` is only needed for the first shop on an app; after that the script reads it from the existing entry. The callback URL carries `app_key` and `code`. The code is single-use and starts with `TTP_`, while an app secret is 40 hex characters, so they are easy to tell apart.
+
+To keep one business's shops apart from another's, point `TIKTOK_SHOP_CONFIG` at its own file for both this script and the server. Backups and the `recovery/` folder follow that path.
+
+### Token lifetime
+
+- **Access token:** lasts about 7 days. An expired token gets `401` / `105002 Expired credentials`; the server then refreshes it and retries once, so MCP use needs no scheduled job.
+- **Refresh token:** effectively does not expire (observed expiry in 2125).
+- **`access_token_expire_in` / `refresh_token_expire_in`:** despite the names, these are Unix timestamps, not durations.
+- **Known issue:** the `*_expire_at` values in `shops.json` and `list_shops` add those timestamps to the current time, so they show years like 2083. Do not rely on them.
+
 ### Claude Code
 
 ```bash
