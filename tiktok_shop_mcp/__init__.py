@@ -1,5 +1,12 @@
 """TikTok Shop MCP Server (multi-shop)"""
 
+import logging
+
+# httpx logs full request URLs at INFO, and these URLs carry access_token,
+# refresh_token and app_secret in the query string.
+for _name in ("httpx", "httpcore"):
+    logging.getLogger(_name).setLevel(logging.WARNING)
+
 __version__ = "0.3.0"
 
 __all__ = ["app", "main", "TikTokShopClient", "config"]

@@ -15,7 +15,6 @@ Does NOT touch VPS. After all 12 done locally, scp the file out separately.
 """
 
 import sys
-from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
@@ -24,6 +23,7 @@ import httpx
 # Shared shops.json helpers live in the package next to this script
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from tiktok_shop_mcp.shops_file import (  # noqa: E402
+    format_expire_at,
     read_shops,
     resolve_shops_path,
     write_shops_atomic,
@@ -68,13 +68,6 @@ def exchange(app_key: str, app_secret: str, auth_code: str) -> dict:
             f"msg={body.get('message', '')[:200]}"
         )
     return body["data"]
-
-
-def fmt_expire(seconds_from_now: int | None) -> str:
-    if not seconds_from_now:
-        return ""
-    dt = datetime.now(timezone.utc) + timedelta(seconds=int(seconds_from_now))
-    return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
 def find_target_index(shops: list[dict], data: dict, app_key: str) -> int:
@@ -160,8 +153,8 @@ def main():
     target["refresh_token"] = new_refresh
     if new_open_id:
         target["open_id"] = new_open_id
-    target["access_token_expire_at"] = fmt_expire(data.get("access_token_expire_in"))
-    target["refresh_token_expire_at"] = fmt_expire(data.get("refresh_token_expire_in"))
+    target["access_token_expire_at"] = format_expire_at(data.get("access_token_expire_in"))
+    target["refresh_token_expire_at"] = format_expire_at(data.get("refresh_token_expire_in"))
 
     if shop_list:
         first = shop_list[0]

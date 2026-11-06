@@ -7,7 +7,7 @@ Reads shops.json, refreshes each token via TikTok auth API, saves back.
 
 import sys
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import os
@@ -24,6 +24,7 @@ os.environ.pop("http_proxy", None)
 # Shared shops.json helpers live in the package next to this script
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from tiktok_shop_mcp.shops_file import (  # noqa: E402
+    format_expire_at,
     read_shops,
     resolve_shops_path,
     update_shop_on_disk,
@@ -68,6 +69,7 @@ def refresh_one(shop: dict) -> dict:
     new_access = data.get("access_token", "")
     new_refresh = data.get("refresh_token", "")
     expire_in = data.get("access_token_expire_in", 0)
+    refresh_expire_in = data.get("refresh_token_expire_in", 0)
 
     changed = {"updated_at": datetime.now().isoformat()}
     if new_access:
@@ -75,10 +77,11 @@ def refresh_one(shop: dict) -> dict:
     if new_refresh:
         changed["refresh_token"] = new_refresh
     if expire_in:
-        expire_at = datetime.now() + timedelta(seconds=expire_in)
-        changed["access_token_expire_at"] = expire_at.isoformat()
+        changed["access_token_expire_at"] = format_expire_at(expire_in)
+    if refresh_expire_in:
+        changed["refresh_token_expire_at"] = format_expire_at(refresh_expire_in)
 
-    logger.info(f"  [OK] {name} — expires in {expire_in}s")
+    logger.info(f"  [OK] {name} — expires at {format_expire_at(expire_in)}")
     return changed
 
 

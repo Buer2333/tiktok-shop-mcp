@@ -23,7 +23,7 @@ import os
 import shutil
 import tempfile
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
@@ -36,6 +36,18 @@ except ImportError:  # pragma: no cover - Windows
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "tiktok-mcp" / "shops.json"
 
 ShopRecord = Dict[str, Any]
+
+
+def format_expire_at(expire_ts: Any) -> str:
+    """Format a TikTok *_expire_in value for shops.json.
+
+    Despite the name, *_expire_in is an absolute Unix timestamp, not a
+    duration, so it must not be added to the current time.
+    """
+    if not expire_ts:
+        return ""
+    dt = datetime.fromtimestamp(int(expire_ts), timezone.utc)
+    return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
 def resolve_shops_path() -> Path:
