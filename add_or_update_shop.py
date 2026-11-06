@@ -5,7 +5,8 @@ Usage:
 
 Behavior:
 - Auto-detects app_key + auth_code from URL.
-- Looks up app_secret from any existing shop on that app_key.
+- Looks up app_secret from any existing shop on that app_key; for the first
+  shop on a new app, reads it from the TIKTOK_SHOP_APP_SECRET env var.
 - Exchanges code (one-time use!) for fresh tokens via TikTok auth endpoint.
 - Match shop entry by open_id → seller_name → shop_id (with same app_key).
 - If match found: UPDATE (rotate tokens / cipher).
@@ -35,7 +36,7 @@ from tiktok_shop_mcp.shops_file import (  # noqa: E402
 CONFIG_PATH = resolve_shops_path()
 AUTH_URL = "https://auth.tiktok-shops.com/api/v2/token/get"
 SHOP_BASE = "https://open-api.tiktokglobalshop.com"
-RECOVERY_DIR = Path.home() / ".config" / "tiktok-mcp" / "recovery"
+RECOVERY_DIR = CONFIG_PATH.parent / "recovery"
 
 
 def parse_callback(url: str) -> tuple[str, str, str]:
@@ -56,7 +57,13 @@ def get_app_secret(shops: list[dict], app_key: str) -> str:
     for s in shops:
         if s.get("app_key") == app_key:
             return s["app_secret"]
-    raise SystemExit(f"❌ no shop on app_key={app_key} — cannot find app_secret")
+    # First shop on a new app: nothing to look up, so take it from the environment
+    secret = os.getenv("TIKTOK_SHOP_APP_SECRET")
+    if secret:
+        return secret
+    raise SystemExit(
+        f"❌ no shop on app_key={app_key} — set TIKTOK_SHOP_APP_SECRET for a new app"
+    )
 
 
 def exchange(app_key: str, app_secret: str, auth_code: str) -> dict:
