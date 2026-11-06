@@ -27,7 +27,12 @@ class ShopCredentials:
     """Credentials for a single TikTok Shop."""
 
     # Fields the server itself rotates and persists back to shops.json.
-    TOKEN_FIELDS = ("access_token", "refresh_token", "access_token_expire_at")
+    TOKEN_FIELDS = (
+        "access_token",
+        "refresh_token",
+        "access_token_expire_at",
+        "refresh_token_expire_at",
+    )
 
     def __init__(self, data: Dict[str, Any]):
         self.seller_name: str = data["seller_name"]

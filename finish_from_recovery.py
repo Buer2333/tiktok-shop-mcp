@@ -10,7 +10,6 @@ import argparse
 import json
 import sys
 import time
-from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import httpx
@@ -18,6 +17,7 @@ import httpx
 # Shared shops.json helpers live in the package next to this script
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from tiktok_shop_mcp.shops_file import (  # noqa: E402
+    format_expire_at,
     read_shops,
     resolve_shops_path,
     write_shops_atomic,
@@ -27,13 +27,6 @@ from tiktok_shop_mcp.client import generate_sign  # noqa: E402
 
 CONFIG_PATH = resolve_shops_path()
 SHOP_BASE = "https://open-api.tiktokglobalshop.com"
-
-
-def fmt_expire(seconds_from_now):
-    if not seconds_from_now:
-        return ""
-    dt = datetime.now(timezone.utc) + timedelta(seconds=int(seconds_from_now))
-    return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
 def load_shops() -> list[dict]:
@@ -142,10 +135,10 @@ def main():
         target["refresh_token"] = data["refresh_token"]
         if data.get("open_id"):
             target["open_id"] = data["open_id"]
-        target["access_token_expire_at"] = fmt_expire(
+        target["access_token_expire_at"] = format_expire_at(
             data.get("access_token_expire_in")
         )
-        target["refresh_token_expire_at"] = fmt_expire(
+        target["refresh_token_expire_at"] = format_expire_at(
             data.get("refresh_token_expire_in")
         )
         if cipher and cipher != target.get("shop_cipher"):
@@ -162,8 +155,8 @@ def main():
             "access_token": data["access_token"],
             "refresh_token": data["refresh_token"],
             "open_id": data.get("open_id", ""),
-            "access_token_expire_at": fmt_expire(data.get("access_token_expire_in")),
-            "refresh_token_expire_at": fmt_expire(data.get("refresh_token_expire_in")),
+            "access_token_expire_at": format_expire_at(data.get("access_token_expire_in")),
+            "refresh_token_expire_at": format_expire_at(data.get("refresh_token_expire_in")),
         }
         shops.append(new_entry)
         print(

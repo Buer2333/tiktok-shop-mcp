@@ -100,7 +100,7 @@ To keep one business's shops apart from another's, point `TIKTOK_SHOP_CONFIG` at
 - **Access token:** lasts about 7 days. An expired token gets `401` / `105002 Expired credentials`; the server then refreshes it and retries once, so MCP use needs no scheduled job.
 - **Refresh token:** effectively does not expire (observed expiry in 2125).
 - **`access_token_expire_in` / `refresh_token_expire_in`:** despite the names, these are Unix timestamps, not durations.
-- **Known issue:** the `*_expire_at` values in `shops.json` and `list_shops` add those timestamps to the current time, so they show years like 2083. Do not rely on them.
+- **`*_expire_at` in `shops.json` and `list_shops`:** real UTC dates. Entries written by older versions can show years like 2083 until their next refresh.
 
 ### Claude Code
 
