@@ -143,7 +143,13 @@ class TikTokShopClient:
 
             # Retryable: 429 and 5xx
             if response.status_code == 429 or response.status_code >= 500:
-                response.raise_for_status()
+                # Not raise_for_status(): its message contains the full URL with
+                # access_token, which retry logs and tool errors would then print.
+                raise httpx.HTTPStatusError(
+                    f"HTTP {response.status_code} from {url_path}",
+                    request=response.request,
+                    response=response,
+                )
 
             # Other client errors
             if response.status_code >= 400:
