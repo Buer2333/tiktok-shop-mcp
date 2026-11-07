@@ -1,6 +1,6 @@
 """翻页游标必须以 query 参数 `page_token` 发出。
 
-2026-10-08 实测（HIILEATHY SHOP）：orders/search、products/search、finance/statements、
+2026-10-08 实测（一家真实店铺）：orders/search、products/search、finance/statements、
 returns/search、cancellations/search 五个 202309 接口都只认 `page_token`；传 `next_page_token`
 会被静默忽略，永远返回第一页——调用方以为翻到了第 2、3…页，实际拿到的是重复数据。
 工具对外的入参名仍叫 next_page_token（与响应字段同名，调用方好理解），只是发请求时换成 page_token。

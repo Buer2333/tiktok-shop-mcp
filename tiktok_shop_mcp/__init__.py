@@ -7,7 +7,7 @@ import logging
 for _name in ("httpx", "httpcore"):
     logging.getLogger(_name).setLevel(logging.WARNING)
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 __all__ = ["app", "main", "TikTokShopClient", "config"]
 
