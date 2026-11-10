@@ -45,6 +45,7 @@ from .tools import (
     get_brands,
     get_warehouses,
     upload_product_image,
+    upload_product_file,
     create_product,
     partial_edit_product,
     edit_product,
@@ -940,6 +941,19 @@ async def upload_product_image_tool(
     """Upload a local image (JPG/PNG/WEBP/HEIC/BMP, max 10MB) to TikTok Shop. use_case: MAIN_IMAGE, ATTRIBUTE_IMAGE, DESCRIPTION_IMAGE, CERTIFICATION_IMAGE or SIZE_CHART_IMAGE. Returns uri (use in product bodies) and url (use in description <img>). Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
     client = get_write_client(seller_name)
     result = await upload_product_image(client, image_path=image_path, use_case=use_case, dry_run=dry_run)
+    return _write_result(client, result)
+
+
+@app.tool()
+@write_tool
+async def upload_product_file_tool(
+    seller_name: str,
+    file_path: str,
+    dry_run: bool = True,
+) -> str:
+    """Upload a local product video (MP4/MOV) or PDF to TikTok Shop (POST /product/202309/files/upload). Returns the file id; attach a video by passing {"id": <id>} as the product's video field (create_product, partial_edit_product or edit_product changes). Platform size and duration limits apply. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await upload_product_file(client, file_path=file_path, dry_run=dry_run)
     return _write_result(client, result)
 
 
