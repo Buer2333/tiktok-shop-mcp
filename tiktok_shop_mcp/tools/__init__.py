@@ -25,6 +25,7 @@ from .listing_info import (
     get_brands,
     get_warehouses,
 )
+from .product_edit import edit_product
 from .product_write import (
     upload_product_image,
     create_product,
@@ -60,6 +61,7 @@ __all__ = [
     "get_warehouses",
     "upload_product_image",
     "create_product",
+    "edit_product",
     "partial_edit_product",
     "activate_products",
     "deactivate_products",

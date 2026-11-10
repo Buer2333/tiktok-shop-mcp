@@ -188,8 +188,10 @@ class TikTokShopClient:
         multipart/form-data. The access token goes only in the
         x-tts-access-token header (202309+ APIs), never in the URL.
         """
-        if method != "POST":
+        if method not in ("POST", "PUT"):
             raise ValueError(f"Unsupported write method: {method}")
+        if method == "PUT" and files is not None:
+            raise ValueError("PUT writes take a JSON body, not files")
         if body is not None and files is not None:
             raise ValueError("Pass either a JSON body or files, not both")
 
@@ -217,6 +219,10 @@ class TikTokShopClient:
                 if files is not None:
                     response = await client.post(
                         full_url, params=query_params, headers=headers, files=files, data=form or {}
+                    )
+                elif method == "PUT":
+                    response = await client.put(
+                        full_url, params=query_params, headers=headers, content=body_str
                     )
                 else:
                     response = await client.post(
