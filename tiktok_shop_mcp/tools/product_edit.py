@@ -151,12 +151,16 @@ async def edit_product(
     version: str = "live",
     category_version: str = "v2",
     dry_run: bool = True,
+    sku_images: Optional[Dict[str, str]] = None,
     **kwargs,
 ) -> Dict[str, Any]:
     """Edit a product through Edit Product, starting from its current read-back.
 
     changes: top-level fields to replace (see EDIT_CHANGEABLE).
     add_skus: new SKUs, Create Product SKU shape, without an id.
+    sku_images: {seller_sku: image uri} for existing SKUs. The image belongs to
+    the SKU's first sales attribute value, so every SKU sharing that value
+    gets the same image.
     version: which version to start from, "live" or "draft". Editing a draft
     requires changes["save_mode"] == "AS_DRAFT" so it is not sent to audit.
     """
@@ -165,8 +169,12 @@ async def edit_product(
     add_skus = list(add_skus or [])
     if version not in VERSIONS:
         raise ValueError(f"version must be one of {sorted(VERSIONS)}, got {version!r}")
-    if not changes and not add_skus:
-        raise ValueError("Nothing to edit: pass changes and/or add_skus")
+    sku_images = dict(sku_images or {})
+    if not changes and not add_skus and not sku_images:
+        raise ValueError("Nothing to edit: pass changes, add_skus and/or sku_images")
+    for k, v in sku_images.items():
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError(f"sku_images[{k!r}] must be an image uri string")
 
     refused = {k: EDIT_REFUSED[k] for k in changes if k in EDIT_REFUSED}
     unknown = sorted(k for k in changes if k not in EDIT_CHANGEABLE and k not in EDIT_REFUSED)
@@ -201,12 +209,29 @@ async def edit_product(
         raise ValueError("Read-back has no leaf category; refusing to send a body without category_id")
     for k, v in changes.items():
         body[k] = _wrap_images(v) if k == "main_images" else v
+    images_changed = []
+    if sku_images:
+        by_seller = {s.get("seller_sku"): s for s in body["skus"]}
+        unknown_skus = sorted(set(sku_images) - set(by_seller))
+        if unknown_skus:
+            raise ValueError(f"sku_images names seller_sku not on this product: {unknown_skus}")
+        for seller_sku, uri in sku_images.items():
+            attrs = by_seller[seller_sku].get("sales_attributes") or []
+            if not attrs:
+                raise ValueError(f"SKU {seller_sku} has no sales attribute to carry an image")
+            key = (attrs[0].get("id"), attrs[0].get("value_id"))
+            for s in body["skus"]:
+                first = (s.get("sales_attributes") or [{}])[0]
+                if (first.get("id"), first.get("value_id")) == key:
+                    first["sku_img"] = {"uri": uri}
+                    images_changed.append(s.get("seller_sku"))
     body["skus"] = body["skus"] + [copy.deepcopy(s) for s in add_skus]
     body.setdefault("category_version", category_version)
 
     path = edit_path(product_id)
     request = {"method": "PUT", "path": path, "content_type": "application/json", "body": body}
     diff = _diff(current, body, add_skus)
+    diff["sku_images_changed"] = sorted(set(images_changed))
     if dry_run:
         return {"dry_run": True, "sent": False, "based_on": version, "diff": diff, "request": request}
 

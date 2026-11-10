@@ -998,8 +998,9 @@ async def edit_product_tool(
     version: str = "live",
     category_version: str = "v2",
     dry_run: bool = True,
+    sku_images: Optional[Dict[str, str]] = None,
 ) -> str:
-    """Full edit via Edit Product (PUT /product/202309/products/{id}), the only way to add SKUs. The tool reads the product's current version (version: live or draft), rebuilds the complete body from it so every existing field and SKU is carried over, then applies changes (title, description, brand_id, main_images, product_attributes, package_weight, package_dimensions, video, search_terms, key_product_features, save_mode) and appends add_skus (new SKUs in Create Product shape, no id). Existing SKUs are never removed or re-identified. Editing a draft requires changes.save_mode = AS_DRAFT. Returns a diff against the current version. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request and diff, sends nothing); pass dry_run=false to send."""
+    """Full edit via Edit Product (PUT /product/202309/products/{id}), the only way to add SKUs. The tool reads the product's current version (version: live or draft), rebuilds the complete body from it so every existing field and SKU is carried over, then applies changes (title, description, brand_id, main_images, product_attributes, package_weight, package_dimensions, video, search_terms, key_product_features, save_mode) and appends add_skus (new SKUs in Create Product shape, no id). sku_images ({seller_sku: image uri}) replaces the option image of existing SKUs; SKUs sharing the same first sales attribute value get the same image. Existing SKUs are never removed or re-identified. Editing a draft requires changes.save_mode = AS_DRAFT. Returns a diff against the current version. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request and diff, sends nothing); pass dry_run=false to send."""
     client = get_write_client(seller_name)
     result = await edit_product(
         client,
@@ -1009,6 +1010,7 @@ async def edit_product_tool(
         version=version,
         category_version=category_version,
         dry_run=dry_run,
+        sku_images=sku_images,
     )
     return _write_result(client, result)
 

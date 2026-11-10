@@ -161,3 +161,52 @@ async def test_empty_read_back_is_refused(shop):
     out = await _call("edit_product_tool", seller_name=ALLOWED, product_id=PID, changes={"title": "x"}, dry_run=False)
     assert out["error"] is True and "no SKUs" in out["message"]
     assert all(c.method == "GET" for c in shop.calls)
+
+
+TWO_SKUS = {
+    **CURRENT,
+    "skus": CURRENT["skus"]
+    + [
+        {
+            "id": "1729000000000000102",
+            "seller_sku": "A-1L",
+            "price": {"currency": "USD", "sale_price": "26.99"},
+            "inventory": [{"warehouse_id": "7000", "quantity": 2}],
+            "sales_attributes": [
+                {"id": "100000", "name": "Color", "value_id": "711", "value_name": "Red", "sku_img": {"uri": "tos-us/red"}},
+                {"id": "200", "name": "Size", "value_id": "9", "value_name": "Large"},
+            ],
+        },
+        {
+            "id": "1729000000000000103",
+            "seller_sku": "B-1",
+            "price": {"currency": "USD", "sale_price": "16.99"},
+            "inventory": [{"warehouse_id": "7000", "quantity": 2}],
+            "sales_attributes": [
+                {"id": "100000", "name": "Color", "value_id": "712", "value_name": "Blue", "sku_img": {"uri": "tos-us/blue"}}
+            ],
+        },
+    ],
+}
+
+
+@pytest.mark.asyncio
+async def test_sku_images_follow_the_shared_color_value(shop):
+    shop.handler = _handler(TWO_SKUS)
+    out = await _call(
+        "edit_product_tool", seller_name=ALLOWED, product_id=PID, sku_images={"A-1": "tos-us/red-new"}
+    )
+    skus = {s["seller_sku"]: s for s in out["request"]["body"]["skus"]}
+    assert skus["A-1"]["sales_attributes"][0]["sku_img"] == {"uri": "tos-us/red-new"}
+    assert skus["A-1L"]["sales_attributes"][0]["sku_img"] == {"uri": "tos-us/red-new"}
+    assert skus["B-1"]["sales_attributes"][0]["sku_img"] == {"uri": "tos-us/blue"}
+    assert out["diff"]["sku_images_changed"] == ["A-1", "A-1L"]
+
+
+@pytest.mark.asyncio
+async def test_sku_images_unknown_seller_sku_is_refused(shop):
+    out = await _call(
+        "edit_product_tool", seller_name=ALLOWED, product_id=PID, sku_images={"NOPE": "tos-us/x"}, dry_run=False
+    )
+    assert out["error"] is True and "not on this product" in out["message"]
+    assert all(c.method == "GET" for c in shop.calls)
