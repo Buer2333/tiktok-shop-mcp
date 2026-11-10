@@ -192,6 +192,9 @@ async def edit_product(
     sku_packages: {seller_sku: {"weight": {unit, value}, "dimensions": {unit,
     length, width, height}}} sets the package of individual existing SKUs
     (sent as sku_weight / sku_dimensions); either key may be left out.
+    Tested 2026-11-10 on a US draft: one SKU with its own package, or several
+    SKUs with identical packages, are accepted; two SKUs with different
+    packages are refused with 12052910 (rule not documented).
     version: which version to start from, "live" or "draft". Editing a draft
     requires changes["save_mode"] == "AS_DRAFT" so it is not sent to audit.
     """
