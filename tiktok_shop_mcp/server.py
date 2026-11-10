@@ -229,7 +229,12 @@ async def get_shop_statements_tool(
     page_size: int = 20,
     next_page_token: Optional[str] = None,
 ) -> str:
-    """Get TikTok Shop financial statements (daily settlement records). Use seller_name to specify which shop."""
+    """Get TikTok Shop financial statements (daily settlement records). Use seller_name to specify which shop.
+
+    create_time_ge / create_time_lt filter by statement generation time (unix seconds).
+    Each statement has settlement_amount = net_sales_amount + shipping_cost_amount + fee_amount + adjustment_amount
+    (signed); total_amount / revenue / fee / adjustment are legacy aliases.
+    """
     client = get_shop_client(seller_name)
     result = await get_statements(
         client,
@@ -257,17 +262,31 @@ async def get_shop_transactions_tool(
     order_id: Optional[str] = None,
     statement_id: Optional[str] = None,
     seller_name: Optional[str] = None,
+    page_size: int = 50,
+    next_page_token: Optional[str] = None,
 ) -> str:
-    """Get transaction details for a specific order or statement. Provide exactly one of order_id or statement_id. Use seller_name to specify which shop."""
+    """Get transaction details for a specific order or statement. Provide exactly one of order_id or statement_id. Use seller_name to specify which shop.
+
+    Uses Finance API 202501. Each transaction carries settlement / revenue / shipping_cost / fee_tax / adjustment
+    amounts plus revenue_breakdown, shipping_cost_breakdown, fee_tax_breakdown and supplementary_component
+    (non-zero components only; an absent key means 0). By order: one entry per SKU. By statement: paginate with
+    page_size (max 100) and next_page_token. summary holds the order or statement totals.
+    """
     client = get_shop_client(seller_name)
     result = await get_transactions(
-        client, order_id=order_id, statement_id=statement_id
+        client,
+        order_id=order_id,
+        statement_id=statement_id,
+        page_size=page_size,
+        next_page_token=next_page_token,
     )
     return json.dumps(
         {
             "success": True,
             "seller_name": client.shop.seller_name,
             "count": len(result["transactions"]),
+            "next_page_token": result.get("next_page_token"),
+            "summary": result.get("summary"),
             "transactions": result["transactions"],
         },
         indent=2,
