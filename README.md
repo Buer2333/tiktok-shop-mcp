@@ -9,11 +9,11 @@ Built for sellers and agencies who operate TikTok Shops and want their AI assist
 ## Features
 
 - **Multi-shop** — configure any number of shops in one JSON file; every tool takes an optional `seller_name` (partial match) to pick the shop
-- **22 tools** covering orders, finance, product catalog, shop/video/SKU analytics, affiliate best-sellers, and returns/cancellations
+- **32 tools** covering orders, finance, product catalog and listing lookups, shop/video/SKU analytics, affiliate best-sellers, returns/cancellations, and gated product writes
 - **Human-friendly dates** — pass `start_date=2026-07-01` + an IANA timezone instead of unix timestamps; the server handles conversion
 - **Token lifecycle** — inspect expiry and refresh access tokens (single shop or all shops) without leaving the conversation
 - **Resilient by default** — all requests go through [`mcp-retry`](https://github.com/Buer2333/mcp-retry) (exponential backoff + jitter on 429/5xx/network errors)
-- **Read-only against your shop** — no tool edits listings, creates products, or uploads files. The only thing the server writes is your own `shops.json`, when it refreshes tokens, with owner-only (`0600`) permissions. For defense in depth, authorize the Partner Center app with read scopes only
+- **Read-only by default** — product write tools exist (image upload, create, partial edit, activate/deactivate), but every one of them refuses until you list the shop's exact name in `TIKTOK_SHOP_WRITE_SHOPS`, and each defaults to a dry run. See [Product writes](#product-writes-opt-in). Otherwise the only thing the server writes is your own `shops.json`, when it refreshes tokens, with owner-only (`0600`) permissions. If you never need writes, authorize the Partner Center app with read scopes only
 
 ## Tools
 
@@ -23,6 +23,8 @@ Built for sellers and agencies who operate TikTok Shops and want their AI assist
 | Orders | `get_shop_orders` · `get_order_detail` · `search_returns` · `search_cancellations` |
 | Finance | `get_shop_statements` · `get_shop_transactions` |
 | Products | `get_shop_products` · `get_product_detail` |
+| Listing lookups | `get_categories` · `get_category_attributes` · `get_category_rules` · `get_brands` · `get_warehouses` |
+| Product writes (opt-in, see below) | `upload_product_image` · `create_product` · `partial_edit_product` · `activate_products` · `deactivate_products` |
 | Shop analytics | `get_shop_performance` · `get_shop_performance_hourly` · `get_shop_products_performance` · `get_product_performance` · `get_shop_videos_performance` · `get_sku_performance` · `get_customer_service_performance` |
 | Video & affiliate | `get_account_video_gmv` · `get_videos_bestselling` · `get_creators_bestselling` · `get_products_bestselling` |
 
@@ -121,6 +123,53 @@ claude mcp add tiktok-shop -- tiktok-shop-mcp
 }
 ```
 
+## Product writes (opt-in)
+
+Five tools change a shop's listings. They are off unless you turn them on per shop.
+
+| Tool | Endpoint (Product API 202309) | Required params |
+|---|---|---|
+| `upload_product_image` | `POST /product/202309/images/upload` (multipart) | `seller_name`, `image_path`; `use_case` = `MAIN_IMAGE` (default), `ATTRIBUTE_IMAGE`, `DESCRIPTION_IMAGE`, `CERTIFICATION_IMAGE`, `SIZE_CHART_IMAGE` |
+| `create_product` | `POST /product/202309/products` | `seller_name`, `product` (the Create Product body: `title`, `category_id`, `main_images`, `skus`, ...) |
+| `partial_edit_product` | `POST /product/202309/products/{id}/partial_edit` | `seller_name`, `product_id`, `changes` |
+| `activate_products` | `POST /product/202309/products/activate` | `seller_name`, `product_ids` (max 20) |
+| `deactivate_products` | `POST /product/202309/products/deactivate` | `seller_name`, `product_ids` (max 20) |
+
+**The gate.** Every write tool checks, before it builds a request:
+
+1. `seller_name` is given and matches a `shops.json` entry **exactly**. The read tools' partial, case-insensitive match and first-shop fallback do not apply: `"MY SHOP"` will not select `"MY SHOP US"`.
+2. That exact name is listed in the `TIKTOK_SHOP_WRITE_SHOPS` environment variable (comma-separated). Unset or empty means every write tool refuses, dry runs included.
+
+```json
+{
+  "mcpServers": {
+    "tiktok-shop": {
+      "command": "tiktok-shop-mcp",
+      "env": { "TIKTOK_SHOP_WRITE_SHOPS": "MY SHOP US" }
+    }
+  }
+}
+```
+
+**Dry run first.** `dry_run` defaults to `true`: the tool returns the method, path and JSON body it would send (no token, signature or app key) and makes no HTTP request. Pass `dry_run=false` to send. A real send then:
+
+- goes out **once**. Write requests skip the automatic retry used for reads, because a create that timed out may still have gone through. On a network error the result says the outcome is unknown; read the product before trying again.
+- reads the product back (`GET /product/202309/products/{id}`) and returns it as `read_back`. After `partial_edit_product` the read-back asks for the version under review, since TikTok Shop keeps the old version live until the edit passes audit. After `activate_products` / `deactivate_products` it returns each product's status, and `errors` lists per-product failures that come back with code 0.
+
+**What the tools will not do.**
+
+- No full **Edit Product** (`PUT .../products/{id}`): it overwrites every field the body leaves out.
+- `partial_edit_product` refuses `skus`. The API treats each top-level field as a unit, so a `skus` list you send stands in for the whole property; the docs do not say what happens to SKUs left out of it (they may be removed), and SKUs carry inventory. It also refuses `listing_platforms` and anything not on its list (`title`, `description`, `brand_id`, `main_images`, `product_attributes`, `package_weight`, `package_dimensions`, `video`, `certifications`, `size_chart`, `search_terms`, `key_product_features`, `external_product_id`, `save_mode`, `locale`).
+- No stock or price updates, product deletion, or anything touching orders, finance or promotions.
+
+**Things to know before sending.**
+
+- Partial Edit leaves omitted top-level fields alone, but an object or list you do send replaces that whole property: leave out one `product_attributes` entry or one `package_dimensions` value and it is blanked. Send the full property.
+- Edits other than price and inventory go back to audit. So do activations (status `PENDING`). New products are audited after creation.
+- `create_product` sets each SKU's opening `inventory` (`warehouse_id` from `get_warehouses`, `quantity`). If another system syncs your stock, make the opening numbers match it; after creation, leave stock to that system.
+- US, EU and SEA shops must use `category_version` `v2`; the tools default to it.
+- The Partner Center app needs the Product Basic (`seller.product.basic`) and Product Modify (`seller.product.write`) scopes; `get_warehouses` needs Logistics Basic (`seller.logistics`).
+
 ## Example prompts
 
 - *"List my shops and when their tokens expire"*
@@ -136,6 +185,7 @@ tiktok_shop_mcp/
 ├── server.py     # FastMCP app — tool definitions, date handling, error envelope
 ├── client.py     # Signed HTTP client (HMAC-SHA256 request signing, via mcp-retry)
 ├── config.py     # Multi-shop credential loading & resolution
+├── write_guard.py # Exact-name + TIKTOK_SHOP_WRITE_SHOPS gate for write tools
 └── tools/        # One module per API domain (orders, finance, products, analytics…)
 ```
 

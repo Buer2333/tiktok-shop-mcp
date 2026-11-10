@@ -10,7 +10,7 @@ import os
 import functools
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 try:  # mcp>=2 renamed FastMCP to MCPServer; mcp.server.fastmcp is now a stub that raises
     from mcp.server.mcpserver import MCPServer as FastMCP
@@ -39,7 +39,18 @@ from .tools import (
     search_returns,
     search_cancellations,
     get_customer_service_performance,
+    get_categories,
+    get_category_attributes,
+    get_category_rules,
+    get_brands,
+    get_warehouses,
+    upload_product_image,
+    create_product,
+    partial_edit_product,
+    activate_products,
+    deactivate_products,
 )
+from .write_guard import WriteRefused, require_write_shop
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -771,6 +782,202 @@ async def get_products_bestselling_tool(
         },
         indent=2,
     )
+
+
+# ─── Listing lookups (read-only) ───
+
+
+@app.tool()
+@handle_errors
+async def get_categories_tool(
+    seller_name: Optional[str] = None,
+    keyword: Optional[str] = None,
+    category_version: str = "v2",
+    locale: Optional[str] = None,
+) -> str:
+    """List product categories available to the shop (filter by keyword). US/EU/SEA shops use category_version 'v2'. Only leaf categories can hold products."""
+    client = get_shop_client(seller_name)
+    result = await get_categories(client, keyword=keyword, category_version=category_version, locale=locale)
+    return json.dumps({"success": True, "seller_name": client.shop.seller_name, **result}, indent=2)
+
+
+@app.tool()
+@handle_errors
+async def get_category_attributes_tool(
+    category_id: str,
+    seller_name: Optional[str] = None,
+    category_version: str = "v2",
+    locale: Optional[str] = None,
+) -> str:
+    """Product and sales attributes for a leaf category; entries with is_required must be supplied when creating a product."""
+    client = get_shop_client(seller_name)
+    result = await get_category_attributes(client, category_id=category_id, category_version=category_version, locale=locale)
+    return json.dumps({"success": True, "seller_name": client.shop.seller_name, **result}, indent=2)
+
+
+@app.tool()
+@handle_errors
+async def get_category_rules_tool(
+    category_id: str,
+    seller_name: Optional[str] = None,
+    category_version: str = "v2",
+    locale: Optional[str] = None,
+) -> str:
+    """Extra listing requirements for a leaf category (certifications, size chart, package dimensions, COD)."""
+    client = get_shop_client(seller_name)
+    result = await get_category_rules(client, category_id=category_id, category_version=category_version, locale=locale)
+    return json.dumps({"success": True, "seller_name": client.shop.seller_name, **result}, indent=2)
+
+
+@app.tool()
+@handle_errors
+async def get_brands_tool(
+    seller_name: Optional[str] = None,
+    category_id: Optional[str] = None,
+    brand_name: Optional[str] = None,
+    only_authorized: bool = False,
+    page_size: int = 100,
+    page_token: Optional[str] = None,
+    category_version: str = "v2",
+) -> str:
+    """Brands the shop can use. Pass category_id to see whether each brand is authorized in that category."""
+    client = get_shop_client(seller_name)
+    result = await get_brands(
+        client, category_id=category_id, brand_name=brand_name, only_authorized=only_authorized,
+        page_size=page_size, page_token=page_token, category_version=category_version,
+    )
+    return json.dumps({"success": True, "seller_name": client.shop.seller_name, **result}, indent=2)
+
+
+@app.tool()
+@handle_errors
+async def get_warehouses_tool(seller_name: Optional[str] = None) -> str:
+    """The shop's warehouses. create_product SKUs reference a warehouse_id."""
+    client = get_shop_client(seller_name)
+    result = await get_warehouses(client)
+    return json.dumps({"success": True, "seller_name": client.shop.seller_name, **result}, indent=2)
+
+
+# ─── Product writes (gated) ───
+#
+# Every write tool:
+#   - needs seller_name, matched exactly (no partial match, no default shop);
+#   - refuses unless that name is listed in TIKTOK_SHOP_WRITE_SHOPS;
+#   - defaults to dry_run=True, which returns the request without sending it;
+#   - sends at most once (no automatic retry) and reads the product back.
+
+
+def get_write_client(seller_name: Optional[str]) -> TikTokShopClient:
+    """Client for a shop that passed the write gate. Raises WriteRefused otherwise."""
+    shop = require_write_shop(seller_name)
+    client = _clients.get(shop.seller_name)
+    if client is None or client.shop is not shop:
+        client = TikTokShopClient(shop)
+        _clients[shop.seller_name] = client
+    return client
+
+
+def write_tool(func):
+    """Error envelope for write tools; marks gate refusals as refused."""
+
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await func(*args, **kwargs)
+        except WriteRefused as e:
+            return json.dumps(
+                {"error": True, "refused": True, "sent": False, "message": f"Refused: {e}"},
+                indent=2,
+            )
+        except Exception as e:
+            return json.dumps(
+                {
+                    "error": True,
+                    "message": f"Error: {e}",
+                    "suggestion": (
+                        "Writes are never retried automatically. If the error came after "
+                        "sending, read the product back before trying again."
+                    ),
+                },
+                indent=2,
+            )
+
+    return wrapper
+
+
+def _write_result(client: TikTokShopClient, result: Dict[str, Any]) -> str:
+    return json.dumps({"success": True, "seller_name": client.shop.seller_name, **result}, indent=2)
+
+
+@app.tool()
+@write_tool
+async def upload_product_image_tool(
+    seller_name: str,
+    image_path: str,
+    use_case: str = "MAIN_IMAGE",
+    dry_run: bool = True,
+) -> str:
+    """Upload a local image (JPG/PNG/WEBP/HEIC/BMP, max 10MB) to TikTok Shop. use_case: MAIN_IMAGE, ATTRIBUTE_IMAGE, DESCRIPTION_IMAGE, CERTIFICATION_IMAGE or SIZE_CHART_IMAGE. Returns uri (use in product bodies) and url (use in description <img>). Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await upload_product_image(client, image_path=image_path, use_case=use_case, dry_run=dry_run)
+    return _write_result(client, result)
+
+
+@app.tool()
+@write_tool
+async def create_product_tool(
+    seller_name: str,
+    product: Dict[str, Any],
+    category_version: str = "v2",
+    dry_run: bool = True,
+) -> str:
+    """Create a product (POST /product/202309/products). product is the Create Product body: title, description, category_id (leaf), brand_id, main_images ([{uri}] or [uri]), skus (sales_attributes, price, inventory [{warehouse_id, quantity}], seller_sku), product_attributes, package_weight, package_dimensions, save_mode (LISTING or AS_DRAFT). The product goes to audit after creation. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await create_product(client, product=product, category_version=category_version, dry_run=dry_run)
+    return _write_result(client, result)
+
+
+@app.tool()
+@write_tool
+async def partial_edit_product_tool(
+    seller_name: str,
+    product_id: str,
+    changes: Dict[str, Any],
+    category_version: str = "v2",
+    dry_run: bool = True,
+) -> str:
+    """Edit some fields of a product via Partial Edit (POST /product/202309/products/{id}/partial_edit). Omitted top-level fields stay unchanged; an object or list you send replaces that whole property (omitted nested fields are blanked). Editable: title, description, brand_id, main_images, product_attributes, package_weight, package_dimensions, video, certifications, size_chart, search_terms, key_product_features, external_product_id, save_mode, locale. skus are refused. Edits go back to audit; the read-back shows the version under review. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await partial_edit_product(
+        client, product_id=product_id, changes=changes, category_version=category_version, dry_run=dry_run
+    )
+    return _write_result(client, result)
+
+
+@app.tool()
+@write_tool
+async def activate_products_tool(
+    seller_name: str,
+    product_ids: List[str],
+    dry_run: bool = True,
+) -> str:
+    """Activate up to 20 deactivated products. They go to audit (PENDING) before showing again. Per-product failures are listed under errors. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await activate_products(client, product_ids=product_ids, dry_run=dry_run)
+    return _write_result(client, result)
+
+
+@app.tool()
+@write_tool
+async def deactivate_products_tool(
+    seller_name: str,
+    product_ids: List[str],
+    dry_run: bool = True,
+) -> str:
+    """Deactivate (hide from buyers) up to 20 ACTIVATE products. Per-product failures are listed under errors. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await deactivate_products(client, product_ids=product_ids, dry_run=dry_run)
+    return _write_result(client, result)
 
 
 # ─── Token Management ───

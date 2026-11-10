@@ -166,6 +166,113 @@ class TikTokShopClient:
 
             return result
 
+    async def _write_request(
+        self,
+        method: str,
+        path: str,
+        body: Optional[Dict[str, Any]] = None,
+        files: Optional[Dict[str, Any]] = None,
+        form: Optional[Dict[str, str]] = None,
+        skip_cipher: bool = False,
+        _retried_auth: bool = False,
+    ) -> Dict[str, Any]:
+        """Send one write request, exactly once.
+
+        Unlike _do_request this is not wrapped in mcp_retry: a write that
+        timed out may still have been applied, and retrying a create would
+        list the product twice. The only retry is after a 401, which the
+        platform rejects before doing anything.
+
+        path is the full API path, e.g. "/product/202309/products".
+        Pass body for application/json, or files (+ form) for
+        multipart/form-data. The access token goes only in the
+        x-tts-access-token header (202309+ APIs), never in the URL.
+        """
+        if method != "POST":
+            raise ValueError(f"Unsupported write method: {method}")
+        if body is not None and files is not None:
+            raise ValueError("Pass either a JSON body or files, not both")
+
+        query_params = {
+            "app_key": self.shop.app_key,
+            "timestamp": str(int(time.time())),
+        }
+        if self.shop.shop_cipher and not skip_cipher:
+            query_params["shop_cipher"] = self.shop.shop_cipher
+
+        headers = {"x-tts-access-token": self.shop.access_token}
+        if files is not None:
+            # Multipart bodies are not part of the signature.
+            body_str = None
+        else:
+            body_str = json.dumps(body or {}, separators=(",", ":"))
+            headers["Content-Type"] = "application/json"
+
+        query_params["sign"] = generate_sign(path, query_params, body_str, self.shop.app_secret)
+        full_url = f"{self.base_url}{path}"
+
+        async with httpx.AsyncClient(timeout=self.request_timeout) as client:
+            logger.info(f"[{self.shop.seller_name}] WRITE {method} {path}")
+            try:
+                if files is not None:
+                    response = await client.post(
+                        full_url, params=query_params, headers=headers, files=files, data=form or {}
+                    )
+                else:
+                    response = await client.post(
+                        full_url, params=query_params, headers=headers, content=body_str
+                    )
+            except httpx.RequestError as e:
+                # Not re-raised as an httpx error: the message must not carry
+                # the URL, and nothing should treat this as retryable.
+                raise Exception(
+                    f"[{self.shop.seller_name}] Network error on {method} {path} "
+                    f"({type(e).__name__}). The write may or may not have been applied; "
+                    f"read the product back before trying again."
+                ) from None
+
+        # A 401 is treated as "not applied": TikTok rejects the request at the
+        # auth layer before any business logic, so one resend after refreshing
+        # the token cannot double-apply. This is an assumption, not documented
+        # behaviour; if it ever proves false, remove this resend.
+        if response.status_code == 401 and not _retried_auth:
+            logger.info(f"[{self.shop.seller_name}] 401 on write, refreshing token and retrying once")
+            try:
+                await self.refresh_access_token()
+            except Exception as refresh_err:
+                raise Exception(
+                    f"[{self.shop.seller_name}] Token expired and auto-refresh failed: {refresh_err}"
+                ) from None
+            return await self._write_request(
+                method, path, body=body, files=files, form=form,
+                skip_cipher=skip_cipher, _retried_auth=True,
+            )
+        if response.status_code == 401:
+            raise Exception(
+                f"[{self.shop.seller_name}] Token invalid even after refresh. Re-authorize the app."
+            )
+        if response.status_code >= 400:
+            raise Exception(
+                f"[{self.shop.seller_name}] HTTP {response.status_code} from {method} {path}: "
+                f"{response.text[:500]}"
+            )
+
+        try:
+            result = response.json()
+        except ValueError:
+            raise Exception(
+                f"[{self.shop.seller_name}] Non-JSON response from {method} {path}: "
+                f"{response.text[:300]}"
+            ) from None
+
+        if result.get("code") != 0:
+            raise Exception(
+                f"[{self.shop.seller_name}] TikTok Shop API error {result.get('code')}: "
+                f"{result.get('message', 'Unknown API error')} "
+                f"(request_id={result.get('request_id', '')})"
+            )
+        return result
+
     async def refresh_access_token(self) -> Dict[str, str]:
         """Refresh the access token using the refresh token.
 
