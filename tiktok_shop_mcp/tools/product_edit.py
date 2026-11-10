@@ -43,6 +43,25 @@ EDIT_REFUSED = {
     "listing_platforms": "listing_platforms can hide the product from a platform.",
 }
 VERSIONS = {"live", "draft"}
+# SKU-level package field -> the product-level field it overrides.
+SKU_PACKAGE_KEYS = {"sku_weight": "package_weight", "sku_dimensions": "package_dimensions"}
+WEIGHT_UNITS = {"KILOGRAM", "POUND"}
+LENGTH_UNITS = {"CENTIMETER", "INCH"}
+
+
+def _check_sku_package(seller_sku: str, pkg: Dict[str, Any]) -> None:
+    if not isinstance(pkg, dict) or not set(pkg) <= {"weight", "dimensions"} or not pkg:
+        raise ValueError(f"sku_packages[{seller_sku!r}] must be {{weight?, dimensions?}}")
+    w = pkg.get("weight")
+    if w is not None and (w.get("unit") not in WEIGHT_UNITS or not str(w.get("value") or "").strip()):
+        raise ValueError(f"sku_packages[{seller_sku!r}].weight needs unit in {sorted(WEIGHT_UNITS)} and value")
+    d = pkg.get("dimensions")
+    if d is not None and (
+        d.get("unit") not in LENGTH_UNITS or not all(str(d.get(k) or "").strip() for k in ("length", "width", "height"))
+    ):
+        raise ValueError(
+            f"sku_packages[{seller_sku!r}].dimensions needs unit in {sorted(LENGTH_UNITS)} and length, width, height"
+        )
 
 
 def edit_path(product_id: str) -> str:
@@ -66,7 +85,7 @@ def _attr_values(values: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
-def _sku_from_read_back(sku: Dict[str, Any]) -> Dict[str, Any]:
+def _sku_from_read_back(sku: Dict[str, Any], product: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     price = sku.get("price") or {}
     out: Dict[str, Any] = {
         "id": str(sku["id"]),
@@ -90,6 +109,14 @@ def _sku_from_read_back(sku: Dict[str, Any]) -> Dict[str, Any]:
         out["sales_attributes"].append(sa)
     if not out["sales_attributes"]:
         del out["sales_attributes"]
+    # SKU-level package: the read-back mirrors the product-level package when
+    # no per-SKU value was set. Carry it over only when it really differs, so a
+    # per-SKU value is never flattened, and a uniform product keeps following
+    # its product-level package.
+    product = product or {}
+    for sku_key, product_key in SKU_PACKAGE_KEYS.items():
+        if sku.get(sku_key) and sku.get(sku_key) != product.get(product_key):
+            out[sku_key] = copy.deepcopy(sku[sku_key])
     return out
 
 
@@ -100,7 +127,7 @@ def edit_body_from_product(product: Dict[str, Any]) -> Dict[str, Any]:
         "description": product.get("description"),
         "category_id": _leaf_category_id(product),
         "main_images": [{"uri": i["uri"]} for i in product.get("main_images") or [] if i.get("uri")],
-        "skus": [_sku_from_read_back(s) for s in product.get("skus") or []],
+        "skus": [_sku_from_read_back(s, product) for s in product.get("skus") or []],
     }
     brand = product.get("brand") or {}
     if brand.get("id"):
@@ -152,6 +179,7 @@ async def edit_product(
     category_version: str = "v2",
     dry_run: bool = True,
     sku_images: Optional[Dict[str, str]] = None,
+    sku_packages: Optional[Dict[str, Dict[str, Any]]] = None,
     **kwargs,
 ) -> Dict[str, Any]:
     """Edit a product through Edit Product, starting from its current read-back.
@@ -161,6 +189,9 @@ async def edit_product(
     sku_images: {seller_sku: image uri} for existing SKUs. The image belongs to
     the SKU's first sales attribute value, so every SKU sharing that value
     gets the same image.
+    sku_packages: {seller_sku: {"weight": {unit, value}, "dimensions": {unit,
+    length, width, height}}} sets the package of individual existing SKUs
+    (sent as sku_weight / sku_dimensions); either key may be left out.
     version: which version to start from, "live" or "draft". Editing a draft
     requires changes["save_mode"] == "AS_DRAFT" so it is not sent to audit.
     """
@@ -170,8 +201,11 @@ async def edit_product(
     if version not in VERSIONS:
         raise ValueError(f"version must be one of {sorted(VERSIONS)}, got {version!r}")
     sku_images = dict(sku_images or {})
-    if not changes and not add_skus and not sku_images:
-        raise ValueError("Nothing to edit: pass changes, add_skus and/or sku_images")
+    sku_packages = dict(sku_packages or {})
+    if not changes and not add_skus and not sku_images and not sku_packages:
+        raise ValueError("Nothing to edit: pass changes, add_skus, sku_images and/or sku_packages")
+    for k, v in sku_packages.items():
+        _check_sku_package(k, v)
     for k, v in sku_images.items():
         if not isinstance(v, str) or not v.strip():
             raise ValueError(f"sku_images[{k!r}] must be an image uri string")
@@ -225,6 +259,18 @@ async def edit_product(
                 if (first.get("id"), first.get("value_id")) == key:
                     first["sku_img"] = {"uri": uri}
                     images_changed.append(s.get("seller_sku"))
+    packages_changed = []
+    if sku_packages:
+        by_seller = {s.get("seller_sku"): s for s in body["skus"]}
+        unknown_skus = sorted(set(sku_packages) - set(by_seller))
+        if unknown_skus:
+            raise ValueError(f"sku_packages names seller_sku not on this product: {unknown_skus}")
+        for seller_sku, pkg in sku_packages.items():
+            if pkg.get("weight") is not None:
+                by_seller[seller_sku]["sku_weight"] = copy.deepcopy(pkg["weight"])
+            if pkg.get("dimensions") is not None:
+                by_seller[seller_sku]["sku_dimensions"] = copy.deepcopy(pkg["dimensions"])
+            packages_changed.append(seller_sku)
     body["skus"] = body["skus"] + [copy.deepcopy(s) for s in add_skus]
     body.setdefault("category_version", category_version)
 
@@ -232,6 +278,7 @@ async def edit_product(
     request = {"method": "PUT", "path": path, "content_type": "application/json", "body": body}
     diff = _diff(current, body, add_skus)
     diff["sku_images_changed"] = sorted(set(images_changed))
+    diff["sku_packages_changed"] = sorted(packages_changed)
     if dry_run:
         return {"dry_run": True, "sent": False, "based_on": version, "diff": diff, "request": request}
 

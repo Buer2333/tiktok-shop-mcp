@@ -210,3 +210,53 @@ async def test_sku_images_unknown_seller_sku_is_refused(shop):
     )
     assert out["error"] is True and "not on this product" in out["message"]
     assert all(c.method == "GET" for c in shop.calls)
+
+
+UNIFORM_PKG = {"unit": "KILOGRAM", "value": "0.2"}
+PER_SKU = json.loads(json.dumps(TWO_SKUS))
+PER_SKU["skus"][0]["sku_weight"] = dict(UNIFORM_PKG)  # mirrors product level
+PER_SKU["skus"][1]["sku_weight"] = {"unit": "KILOGRAM", "value": "0.6"}  # really per SKU
+PER_SKU["skus"][1]["sku_dimensions"] = {"unit": "CENTIMETER", "length": "30", "width": "20", "height": "3"}
+
+
+@pytest.mark.asyncio
+async def test_per_sku_package_is_carried_over_and_uniform_is_not(shop):
+    shop.handler = _handler(PER_SKU)
+    out = await _call("edit_product_tool", seller_name=ALLOWED, product_id=PID, changes={"title": "T"})
+    skus = {s["seller_sku"]: s for s in out["request"]["body"]["skus"]}
+    assert "sku_weight" not in skus["A-1"]
+    assert skus["A-1L"]["sku_weight"] == {"unit": "KILOGRAM", "value": "0.6"}
+    assert skus["A-1L"]["sku_dimensions"]["length"] == "30"
+    assert out["diff"]["sku_packages_changed"] == []
+
+
+@pytest.mark.asyncio
+async def test_sku_packages_set_named_skus_only(shop):
+    shop.handler = _handler(TWO_SKUS)
+    pkg = {
+        "weight": {"unit": "KILOGRAM", "value": "0.35"},
+        "dimensions": {"unit": "CENTIMETER", "length": "37", "width": "24", "height": "1.3"},
+    }
+    out = await _call("edit_product_tool", seller_name=ALLOWED, product_id=PID, sku_packages={"B-1": pkg})
+    skus = {s["seller_sku"]: s for s in out["request"]["body"]["skus"]}
+    assert skus["B-1"]["sku_weight"] == pkg["weight"] and skus["B-1"]["sku_dimensions"] == pkg["dimensions"]
+    assert "sku_weight" not in skus["A-1"] and "sku_weight" not in skus["A-1L"]
+    assert out["diff"]["sku_packages_changed"] == ["B-1"]
+    assert [c.method for c in shop.calls] == ["GET"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "pkgs,msg",
+    [
+        ({"NOPE": {"weight": {"unit": "KILOGRAM", "value": "1"}}}, "not on this product"),
+        ({"A-1": {"weight": {"unit": "GRAM", "value": "1"}}}, "weight needs unit"),
+        ({"A-1": {"dimensions": {"unit": "CENTIMETER", "length": "1"}}}, "dimensions needs unit"),
+        ({"A-1": {"size": 1}}, "must be"),
+    ],
+)
+async def test_bad_sku_packages_send_nothing(shop, pkgs, msg):
+    shop.handler = _handler(TWO_SKUS)
+    out = await _call("edit_product_tool", seller_name=ALLOWED, product_id=PID, sku_packages=pkgs, dry_run=False)
+    assert out["error"] is True and msg in out["message"]
+    assert all(c.method == "GET" for c in shop.calls)
