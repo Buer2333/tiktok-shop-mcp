@@ -170,6 +170,49 @@ def _diff(current: Dict[str, Any], body: Dict[str, Any], added: List[Dict[str, A
     }
 
 
+
+def _uri_key(uri: Any) -> str:
+    """Compare image uris by their last segment; the region prefix can differ between versions."""
+    return str(uri or "").rsplit("/", 1)[-1]
+
+
+def _pending_view(p: Dict[str, Any]) -> Dict[str, Any]:
+    """The fields a buyer sees, in a form comparable between a read-back and an edit body.
+
+    key_product_features is left out: the under-review read-back omits it.
+    """
+    skus = p.get("skus") or []
+    return {
+        "title": p.get("title"),
+        "description": p.get("description"),
+        "main_images": [_uri_key(i.get("uri")) for i in p.get("main_images") or []],
+        "video": (p.get("video") or {}).get("id"),
+        "sku_images": {
+            s.get("seller_sku"): _uri_key(((s.get("sales_attributes") or [{}])[0].get("sku_img") or {}).get("uri"))
+            for s in skus
+        },
+        "prices": {
+            s.get("seller_sku"): (s.get("price") or {}).get("sale_price") or (s.get("price") or {}).get("amount")
+            for s in skus
+        },
+        "skus": sorted(str(s.get("seller_sku")) for s in skus),
+    }
+
+
+def _pending_losses(live: Dict[str, Any], review: Dict[str, Any], body: Dict[str, Any]) -> List[str]:
+    """Fields changed in the under-review version that this body would put back to the live value."""
+    lv, rv, bv = _pending_view(live), _pending_view(review), _pending_view(body)
+    lost = []
+    for field in ("title", "description", "main_images", "video", "skus"):
+        if rv[field] != lv[field] and bv[field] != rv[field]:
+            lost.append(field)
+    for field in ("sku_images", "prices"):
+        for sku, value in rv[field].items():
+            if value != lv[field].get(sku) and bv[field].get(sku) != value:
+                lost.append(f"{field}[{sku}]")
+    return lost
+
+
 async def edit_product(
     client,
     product_id: str,
@@ -181,6 +224,7 @@ async def edit_product(
     sku_images: Optional[Dict[str, str]] = None,
     sku_packages: Optional[Dict[str, Dict[str, Any]]] = None,
     submit_draft: bool = False,
+    allow_overwrite_pending: bool = False,
     **kwargs,
 ) -> Dict[str, Any]:
     """Edit a product through Edit Product, starting from its current read-back.
@@ -201,6 +245,10 @@ async def edit_product(
     submit_draft: send a draft to audit as it is (save_mode LISTING). Only
     with version="draft" and nothing else to change, so a submission never
     carries an unreviewed edit.
+    allow_overwrite_pending: while an earlier edit is still in review, the live
+    read-back is the last approved version, so an edit built on it would put
+    the reviewed changes back. The edit is refused when that would happen;
+    pass those changes again (changes / sku_images) or set this to True.
     """
     product_id = require_numeric_id(product_id, "product_id")
     changes = dict(changes or {})
@@ -293,6 +341,18 @@ async def edit_product(
 
     path = edit_path(product_id)
     request = {"method": "PUT", "path": path, "content_type": "application/json", "body": body}
+    if version == "live" and status != "DRAFT" and not allow_overwrite_pending:
+        review = await _read_back(client, product_id, "under_review")
+        pending = (review.get("product") or {}) if not review.get("error") else {}
+        if pending.get("skus"):
+            lost = _pending_losses(current, pending, body)
+            if lost:
+                raise ValueError(
+                    "An earlier edit is still in review and this edit would undo it: "
+                    + ", ".join(lost)
+                    + ". Pass those values again in changes / sku_images, wait for the review, "
+                    "or set allow_overwrite_pending=true"
+                )
     diff = _diff(current, body, add_skus)
     diff["sku_images_changed"] = sorted(set(images_changed))
     diff["sku_packages_changed"] = sorted(packages_changed)

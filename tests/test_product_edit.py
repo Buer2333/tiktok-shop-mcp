@@ -77,7 +77,7 @@ async def test_dry_run_reads_only_and_carries_everything_over(shop):
         "edit_product_tool", seller_name=ALLOWED, product_id=PID, changes={"title": "New title"}, add_skus=[NEW_SKU]
     )
     assert out["dry_run"] is True and out["sent"] is False
-    assert [c.method for c in shop.calls] == ["GET"]
+    assert [c.method for c in shop.calls] == ["GET", "GET"]  # live + under_review (pending-review check)
     body = out["request"]["body"]
     assert out["request"]["method"] == "PUT" and out["request"]["path"] == f"/product/202309/products/{PID}"
     assert body["title"] == "New title"
@@ -242,7 +242,7 @@ async def test_sku_packages_set_named_skus_only(shop):
     assert skus["B-1"]["sku_weight"] == pkg["weight"] and skus["B-1"]["sku_dimensions"] == pkg["dimensions"]
     assert "sku_weight" not in skus["A-1"] and "sku_weight" not in skus["A-1L"]
     assert out["diff"]["sku_packages_changed"] == ["B-1"]
-    assert [c.method for c in shop.calls] == ["GET"]
+    assert [c.method for c in shop.calls] == ["GET", "GET"]  # live + under_review (pending-review check)
 
 
 @pytest.mark.asyncio
@@ -298,3 +298,64 @@ async def test_submit_draft_refuses_non_draft_read_back(shop):
     )
     assert out["error"] is True and "not DRAFT" in out["message"]
     assert all(c.method == "GET" for c in shop.calls)
+
+
+
+def _review_handler(live, review):
+    def handler(request):
+        if request.method == "GET":
+            under = request.url.params.get("return_under_review_version") == "true"
+            return httpx.Response(200, json={"code": 0, "data": review if under else live})
+        if request.method == "PUT":
+            return httpx.Response(200, json={"code": 0, "data": {"product_id": PID}, "request_id": "r9"})
+        return httpx.Response(404, json={"code": 1, "message": "unexpected"})
+
+    return handler
+
+
+def _in_review():
+    import copy
+
+    review = copy.deepcopy(CURRENT)
+    review["main_images"] = [{"uri": "tos-sg/new-a"}, {"uri": "tos-us/b"}]
+    review["skus"][0]["sales_attributes"][0]["sku_img"] = {"uri": "tos-sg/red-new"}
+    return review
+
+
+@pytest.mark.asyncio
+async def test_edit_that_would_undo_a_pending_review_is_refused(shop):
+    shop.handler = _review_handler(CURRENT, _in_review())
+    out = await _call(
+        "edit_product_tool", seller_name=ALLOWED, product_id=PID, changes={"key_product_features": ["X"]}, dry_run=False
+    )
+    assert out["error"] is True and "still in review" in out["message"]
+    assert "main_images" in out["message"] and "sku_images[A-1]" in out["message"]
+    assert all(c.method == "GET" for c in shop.calls)
+
+
+@pytest.mark.asyncio
+async def test_pending_values_passed_again_are_accepted(shop):
+    shop.handler = _review_handler(CURRENT, _in_review())
+    out = await _call(
+        "edit_product_tool",
+        seller_name=ALLOWED,
+        product_id=PID,
+        changes={"key_product_features": ["X"], "main_images": ["tos-sg/new-a", "tos-us/b"]},
+        sku_images={"A-1": "tos-sg/red-new"},
+        dry_run=False,
+    )
+    assert out["sent"] is True
+
+
+@pytest.mark.asyncio
+async def test_allow_overwrite_pending_skips_the_check(shop):
+    shop.handler = _review_handler(CURRENT, _in_review())
+    out = await _call(
+        "edit_product_tool",
+        seller_name=ALLOWED,
+        product_id=PID,
+        changes={"key_product_features": ["X"]},
+        allow_overwrite_pending=True,
+        dry_run=False,
+    )
+    assert out["sent"] is True
