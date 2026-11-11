@@ -51,6 +51,9 @@ from .tools import (
     edit_product,
     activate_products,
     deactivate_products,
+    create_discount_activity,
+    set_discount_products,
+    read_activity,
 )
 from .write_guard import WriteRefused, require_write_shop
 
@@ -1029,6 +1032,51 @@ async def activate_products_tool(
     """Activate up to 20 deactivated products. They go to audit (PENDING) before showing again. Per-product failures are listed under errors. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
     client = get_write_client(seller_name)
     result = await activate_products(client, product_ids=product_ids, dry_run=dry_run)
+    return _write_result(client, result)
+
+
+@app.tool()
+@handle_errors
+async def get_promotion_activity_tool(
+    activity_id: str,
+    seller_name: Optional[str] = None,
+) -> str:
+    """Read one promotion activity (type, level, status, times, products and SKU activity prices). Use seller_name to specify which shop."""
+    client = get_shop_client(seller_name)
+    result = await read_activity(client, activity_id)
+    if result.get("error"):
+        raise Exception(result["error"])
+    return json.dumps({"success": True, "seller_name": client.shop.seller_name, **result}, indent=2)
+
+
+@app.tool()
+@write_tool
+async def create_discount_activity_tool(
+    seller_name: str,
+    title: str,
+    begin_time: int,
+    end_time: int,
+    dry_run: bool = True,
+) -> str:
+    """Create an empty fixed-price, per-SKU seller discount (Promotion API: activity_type FIXED_PRICE, product_level VARIATION). begin_time and end_time are Unix seconds. Add products and prices afterwards with set_discount_products_tool. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await create_discount_activity(
+        client, title=title, begin_time=begin_time, end_time=end_time, dry_run=dry_run
+    )
+    return _write_result(client, result)
+
+
+@app.tool()
+@write_tool
+async def set_discount_products_tool(
+    seller_name: str,
+    activity_id: str,
+    products: List[Dict[str, Any]],
+    dry_run: bool = True,
+) -> str:
+    """Put products into a fixed-price per-SKU discount activity. products: [{"product_id": "...", "prices": {seller_sku: "19.99"}}]; each price is what the buyer pays and must be below the SKU's current live price. Seller SKUs are resolved to SKU ids from the live product; the preview lists from/to/off per SKU. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await set_discount_products(client, activity_id=activity_id, products=products, dry_run=dry_run)
     return _write_result(client, result)
 
 
