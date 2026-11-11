@@ -57,7 +57,6 @@ from .tools import (
     read_activity,
     update_activity_times,
     deactivate_activity,
-    deactivate_coupon,
 )
 from .write_guard import WriteRefused, require_write_shop
 
@@ -1108,19 +1107,6 @@ async def deactivate_activity_tool(
     """End a promotion activity now (POST /promotion/202309/activities/{id}/deactivate): product discounts, shipping discounts (free shipping) and other seller activities. It cannot be switched back on; a new activity must be created. The preview shows type, level and product count. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
     client = get_write_client(seller_name)
     result = await deactivate_activity(client, activity_id=activity_id, dry_run=dry_run)
-    return _write_result(client, result)
-
-
-@app.tool()
-@write_tool
-async def deactivate_coupon_tool(
-    seller_name: str,
-    coupon_id: str,
-    dry_run: bool = True,
-) -> str:
-    """End a seller coupon now (POST /promotion/202406/coupons/{id}/deactivate). It cannot be switched back on. The preview shows title, discount and threshold. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
-    client = get_write_client(seller_name)
-    result = await deactivate_coupon(client, coupon_id=coupon_id, dry_run=dry_run)
     return _write_result(client, result)
 
 
