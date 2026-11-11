@@ -38,6 +38,8 @@ def _handler(activity=ACTIVITY, product=PRODUCT):
             return httpx.Response(200, json={"code": 0, "data": product})
         if request.method == "POST" and path.endswith("/promotion/202309/activities"):
             return httpx.Response(200, json={"code": 0, "data": {"activity_id": AID}, "request_id": "c1"})
+        if request.method == "PUT" and path.endswith(f"/activities/{AID}"):
+            return httpx.Response(200, json={"code": 0, "data": {"activity_id": AID}, "request_id": "e1"})
         if request.method == "PUT" and path.endswith(f"/activities/{AID}/products"):
             return httpx.Response(200, json={"code": 0, "data": {"activity_id": AID}, "request_id": "u1"})
         return httpx.Response(404, json={"code": 1, "message": "unexpected"})
@@ -142,3 +144,26 @@ async def test_set_products_refuses_wrong_activity(shop, activity, msg):
     out = await _call("set_discount_products_tool", seller_name=ALLOWED, activity_id=AID, products=PRICES, dry_run=False)
     assert out["error"] is True and msg in out["message"]
     assert all(c.method == "GET" for c in shop.calls)
+
+
+@pytest.mark.asyncio
+async def test_update_end_time_keeps_title_and_begin(shop):
+    out = await _call("update_discount_activity_end_tool", seller_name=ALLOWED, activity_id=AID, end_time=1799000000)
+    assert out["sent"] is False and all(c.method == "GET" for c in shop.calls)
+    assert out["request"]["body"] == {
+        "activity_id": AID, "title": "New links", "begin_time": 1794400000, "end_time": 1799000000
+    }
+    out = await _call(
+        "update_discount_activity_end_tool", seller_name=ALLOWED, activity_id=AID, end_time=1799000000, dry_run=False
+    )
+    puts = [c for c in shop.calls if c.method == "PUT"]
+    assert len(puts) == 1 and puts[0].url.path.endswith(f"/activities/{AID}")
+    assert out["request_id"] == "e1"
+
+
+@pytest.mark.asyncio
+async def test_update_end_time_refusals(shop):
+    out = await _call("update_discount_activity_end_tool", seller_name=ALLOWED, activity_id=AID, end_time=1, dry_run=False)
+    assert out["error"] is True and all(c.method == "GET" for c in shop.calls)
+    out = await _call("update_discount_activity_end_tool", seller_name=OTHER, activity_id=AID, end_time=1799000000, dry_run=False)
+    assert out["refused"] is True

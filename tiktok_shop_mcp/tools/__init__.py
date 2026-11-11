@@ -27,7 +27,7 @@ from .listing_info import (
 )
 from .product_edit import edit_product
 from .inventory_write import update_inventory
-from .promotion_write import create_discount_activity, set_discount_products, read_activity
+from .promotion_write import create_discount_activity, set_discount_products, read_activity, update_activity_times
 from .product_write import (
     upload_product_image,
     upload_product_file,
@@ -42,6 +42,7 @@ __all__ = [
     "create_discount_activity",
     "set_discount_products",
     "read_activity",
+    "update_activity_times",
     "get_orders",
     "get_order_detail",
     "get_transactions",

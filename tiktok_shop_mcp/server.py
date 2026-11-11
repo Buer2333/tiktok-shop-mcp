@@ -55,6 +55,7 @@ from .tools import (
     create_discount_activity,
     set_discount_products,
     read_activity,
+    update_activity_times,
 )
 from .write_guard import WriteRefused, require_write_shop
 
@@ -1078,6 +1079,20 @@ async def set_discount_products_tool(
     """Put products into a fixed-price per-SKU discount activity. products: [{"product_id": "...", "prices": {seller_sku: "19.99"}}]; each price is what the buyer pays and must be below the SKU's current live price. Seller SKUs are resolved to SKU ids from the live product; the preview lists from/to/off per SKU. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
     client = get_write_client(seller_name)
     result = await set_discount_products(client, activity_id=activity_id, products=products, dry_run=dry_run)
+    return _write_result(client, result)
+
+
+@app.tool()
+@write_tool
+async def update_discount_activity_end_tool(
+    seller_name: str,
+    activity_id: str,
+    end_time: int,
+    dry_run: bool = True,
+) -> str:
+    """Change a promotion activity's end time (PUT /promotion/202309/activities/{id}); title and begin time are kept. Every product in the activity keeps its discount for the new period: the preview lists how many products and SKUs that is. end_time is Unix seconds. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await update_activity_times(client, activity_id=activity_id, end_time=end_time, dry_run=dry_run)
     return _write_result(client, result)
 
 

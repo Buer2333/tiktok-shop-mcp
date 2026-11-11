@@ -173,3 +173,66 @@ async def set_discount_products(
         "request_id": response.get("request_id"),
         "read_back": await read_activity(client, activity_id),
     }
+
+
+def activity_path(activity_id: str) -> str:
+    return f"/promotion/{API_VERSION}/activities/{activity_id}"
+
+
+async def update_activity_times(
+    client,
+    activity_id: str,
+    end_time: int,
+    title: Optional[str] = None,
+    dry_run: bool = True,
+    **kwargs,
+) -> Dict[str, Any]:
+    """Change an activity's end time (Update Activity). Title and begin time are kept.
+
+    Every product in the activity keeps its price for the new period, so the
+    preview lists how many products and SKUs are affected.
+    """
+    activity_id = require_numeric_id(activity_id, "activity_id")
+    try:
+        end_time = int(end_time)
+    except (TypeError, ValueError):
+        raise ValueError("end_time must be Unix seconds")
+    act = await read_activity(client, activity_id)
+    if act.get("error"):
+        raise ValueError(act["error"])
+    a = act["activity"]
+    if a.get("status") in CLOSED_STATUSES:
+        raise ValueError(f"Activity {activity_id} is {a.get('status')}")
+    begin_time = int(a.get("begin_time"))
+    if end_time <= begin_time:
+        raise ValueError("end_time must be after the activity's begin_time")
+    body = {
+        "activity_id": activity_id,
+        "title": (title or a.get("title") or "").strip(),
+        "begin_time": begin_time,
+        "end_time": end_time,
+    }
+    products = a.get("products") or []
+    preview = {
+        "title": body["title"],
+        "status": a.get("status"),
+        "begin_time": begin_time,
+        "end_time": {"from": a.get("end_time"), "to": end_time},
+        "products": len(products),
+        "skus": sum(len(p.get("skus") or []) for p in products),
+        "product_ids": [p.get("id") for p in products],
+    }
+    path = activity_path(activity_id)
+    request = {"method": "PUT", "path": path, "content_type": "application/json", "body": body}
+    if dry_run:
+        return {"dry_run": True, "sent": False, "preview": preview, "request": request}
+    response = await client._write_request("PUT", path, body=body)
+    return {
+        "dry_run": False,
+        "sent": True,
+        "preview": preview,
+        "request": request,
+        "response": response.get("data") or {},
+        "request_id": response.get("request_id"),
+        "read_back": await read_activity(client, activity_id),
+    }
