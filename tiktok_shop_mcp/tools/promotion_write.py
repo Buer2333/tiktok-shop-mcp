@@ -155,7 +155,8 @@ async def set_discount_products(
         body_products.append({"id": pid, "quantity_limit": -1, "quantity_per_user": -1, "skus": skus})
 
     path = activity_products_path(activity_id)
-    body = {"products": body_products}
+    # The path carries the id, but the endpoint also requires it in the body (36009004 without it).
+    body = {"activity_id": activity_id, "products": body_products}
     request = {"method": "PUT", "path": path, "content_type": "application/json", "body": body}
     activity = {k: a.get(k) for k in ("title", "status", "begin_time", "end_time")}
     if dry_run:

@@ -107,7 +107,8 @@ async def test_set_products_sends_one_put_then_reads_back(shop):
     methods = [c.method for c in shop.calls]
     assert methods.count("PUT") == 1 and methods[-1] == "GET"
     put = next(c for c in shop.calls if c.method == "PUT")
-    assert len(json.loads(put.content)["products"][0]["skus"]) == 2
+    sent = json.loads(put.content)
+    assert sent["activity_id"] == AID and len(sent["products"][0]["skus"]) == 2
     assert out["request_id"] == "u1"
 
 
