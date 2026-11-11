@@ -51,6 +51,7 @@ from .tools import (
     edit_product,
     activate_products,
     deactivate_products,
+    update_inventory,
     create_discount_activity,
     set_discount_products,
     read_activity,
@@ -1077,6 +1078,20 @@ async def set_discount_products_tool(
     """Put products into a fixed-price per-SKU discount activity. products: [{"product_id": "...", "prices": {seller_sku: "19.99"}}]; each price is what the buyer pays and must be below the SKU's current live price. Seller SKUs are resolved to SKU ids from the live product; the preview lists from/to/off per SKU. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
     client = get_write_client(seller_name)
     result = await set_discount_products(client, activity_id=activity_id, products=products, dry_run=dry_run)
+    return _write_result(client, result)
+
+
+@app.tool()
+@write_tool
+async def update_inventory_tool(
+    seller_name: str,
+    product_id: str,
+    quantities: Dict[str, int],
+    dry_run: bool = True,
+) -> str:
+    """Set the stock of SKUs on one product (POST /product/202309/products/{id}/inventory/update); the product is not re-audited. quantities: {seller_sku: whole number >= 0}. Each SKU keeps its current single warehouse; the preview lists from/to per SKU. Normally an ERP owns stock: use this for one-off corrections. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await update_inventory(client, product_id=product_id, quantities=quantities, dry_run=dry_run)
     return _write_result(client, result)
 
 
