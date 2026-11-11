@@ -143,7 +143,8 @@ async def set_discount_products(
             skus.append(
                 {
                     "id": str(sku["id"]),
-                    "activity_price": {"amount": str(new), "currency": "USD"},
+                    # Request field; reads return it as activity_price {amount, currency} (17029044 without it).
+                    "activity_price_amount": str(new),
                     "quantity_limit": -1,
                     "quantity_per_user": -1,
                 }

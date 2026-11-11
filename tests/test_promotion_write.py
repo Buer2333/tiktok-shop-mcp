@@ -93,7 +93,7 @@ async def test_set_products_resolves_seller_skus_and_previews(shop):
     assert all(c.method == "GET" for c in shop.calls)
     body = out["request"]["body"]["products"][0]
     assert body["id"] == PID
-    assert {s["id"]: s["activity_price"]["amount"] for s in body["skus"]} == {
+    assert {s["id"]: s["activity_price_amount"] for s in body["skus"]} == {
         "1729000000000000101": "19.99", "1729000000000000102": "14.99"
     }
     assert {p["seller_sku"]: (p["from"], p["to"]) for p in out["preview"]} == {
