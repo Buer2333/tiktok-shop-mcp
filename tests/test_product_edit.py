@@ -260,3 +260,41 @@ async def test_bad_sku_packages_send_nothing(shop, pkgs, msg):
     out = await _call("edit_product_tool", seller_name=ALLOWED, product_id=PID, sku_packages=pkgs, dry_run=False)
     assert out["error"] is True and msg in out["message"]
     assert all(c.method == "GET" for c in shop.calls)
+
+
+@pytest.mark.asyncio
+async def test_submit_draft_sends_listing_and_nothing_else(shop):
+    shop.handler = _handler({**CURRENT, "status": "DRAFT"})
+    out = await _call(
+        "edit_product_tool", seller_name=ALLOWED, product_id=PID, version="draft", submit_draft=True, dry_run=False
+    )
+    assert out["sent"] is True and out["read_back"]["version"] == "under_review"
+    put = next(c for c in shop.calls if c.method == "PUT")
+    body = json.loads(put.content)
+    assert body["save_mode"] == "LISTING" and body["title"] == "Old title"
+    assert out["diff"]["changed_fields"] == ["category_version", "save_mode"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kw,msg",
+    [
+        ({"version": "live"}, 'version="draft"'),
+        ({"version": "draft", "changes": {"title": "x"}}, "as it is"),
+        ({"version": "draft", "changes": {"save_mode": "AS_DRAFT"}}, "LISTING"),
+    ],
+)
+async def test_submit_draft_refusals_send_nothing(shop, kw, msg):
+    shop.handler = _handler({**CURRENT, "status": "DRAFT"})
+    out = await _call("edit_product_tool", seller_name=ALLOWED, product_id=PID, submit_draft=True, dry_run=False, **kw)
+    assert out["error"] is True and msg in out["message"]
+    assert all(c.method == "GET" for c in shop.calls)
+
+
+@pytest.mark.asyncio
+async def test_submit_draft_refuses_non_draft_read_back(shop):
+    out = await _call(
+        "edit_product_tool", seller_name=ALLOWED, product_id=PID, version="draft", submit_draft=True, dry_run=False
+    )
+    assert out["error"] is True and "not DRAFT" in out["message"]
+    assert all(c.method == "GET" for c in shop.calls)

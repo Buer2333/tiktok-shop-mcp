@@ -180,6 +180,7 @@ async def edit_product(
     dry_run: bool = True,
     sku_images: Optional[Dict[str, str]] = None,
     sku_packages: Optional[Dict[str, Dict[str, Any]]] = None,
+    submit_draft: bool = False,
     **kwargs,
 ) -> Dict[str, Any]:
     """Edit a product through Edit Product, starting from its current read-back.
@@ -197,6 +198,9 @@ async def edit_product(
     packages are refused with 12052910 (rule not documented).
     version: which version to start from, "live" or "draft". Editing a draft
     requires changes["save_mode"] == "AS_DRAFT" so it is not sent to audit.
+    submit_draft: send a draft to audit as it is (save_mode LISTING). Only
+    with version="draft" and nothing else to change, so a submission never
+    carries an unreviewed edit.
     """
     product_id = require_numeric_id(product_id, "product_id")
     changes = dict(changes or {})
@@ -205,6 +209,14 @@ async def edit_product(
         raise ValueError(f"version must be one of {sorted(VERSIONS)}, got {version!r}")
     sku_images = dict(sku_images or {})
     sku_packages = dict(sku_packages or {})
+    if submit_draft:
+        if version != "draft":
+            raise ValueError('submit_draft needs version="draft"')
+        if set(changes) - {"save_mode"} or add_skus or sku_images or sku_packages:
+            raise ValueError("submit_draft sends the draft as it is; save other edits as a draft first")
+        if changes.get("save_mode", "LISTING") != "LISTING":
+            raise ValueError('submit_draft sends save_mode "LISTING"')
+        changes = {"save_mode": "LISTING"}
     if not changes and not add_skus and not sku_images and not sku_packages:
         raise ValueError("Nothing to edit: pass changes, add_skus, sku_images and/or sku_packages")
     for k, v in sku_packages.items():
@@ -233,7 +245,9 @@ async def edit_product(
     if not current.get("skus"):
         raise ValueError(f"The {version} read-back has no SKUs; refusing to build a full edit from it")
     status = current.get("status")
-    if (version == "draft" or status == "DRAFT") and changes.get("save_mode") != "AS_DRAFT":
+    if submit_draft and status != "DRAFT":
+        raise ValueError(f"submit_draft: the read-back status is {status!r}, not DRAFT")
+    if (version == "draft" or status == "DRAFT") and changes.get("save_mode") != "AS_DRAFT" and not submit_draft:
         raise ValueError('Editing a draft needs changes["save_mode"] = "AS_DRAFT", or it goes to audit')
 
     existing_sellers = {s.get("seller_sku") for s in current["skus"]}
