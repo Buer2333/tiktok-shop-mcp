@@ -38,6 +38,10 @@ def _handler(activity=ACTIVITY, product=PRODUCT):
             return httpx.Response(200, json={"code": 0, "data": product})
         if request.method == "POST" and path.endswith("/promotion/202309/activities"):
             return httpx.Response(200, json={"code": 0, "data": {"activity_id": AID}, "request_id": "c1"})
+        if request.method == "GET" and "/coupons/7700000000000000001" in path:
+            return httpx.Response(200, json={"code": 0, "data": {"coupon": {"id": "7700000000000000001", "status": "ONGOING", "title": "16-2"}}})
+        if request.method == "POST" and path.endswith("/coupons/7700000000000000001/deactivate"):
+            return httpx.Response(200, json={"code": 0, "data": {}, "request_id": "cd1"})
         if request.method == "POST" and path.endswith(f"/activities/{AID}/deactivate"):
             return httpx.Response(200, json={"code": 0, "data": {"activity_id": AID}, "request_id": "d1"})
         if request.method == "PUT" and path.endswith(f"/activities/{AID}"):
@@ -188,3 +192,12 @@ async def test_deactivate_refuses_closed_and_other_shop(shop):
     assert out["error"] is True and all(c.method == "GET" for c in shop.calls)
     out = await _call("deactivate_activity_tool", seller_name=OTHER, activity_id=AID, dry_run=False)
     assert out["refused"] is True
+
+
+@pytest.mark.asyncio
+async def test_deactivate_coupon(shop):
+    out = await _call("deactivate_coupon_tool", seller_name=ALLOWED, coupon_id="7700000000000000001")
+    assert out["sent"] is False and out["preview"]["title"] == "16-2"
+    out = await _call("deactivate_coupon_tool", seller_name=ALLOWED, coupon_id="7700000000000000001", dry_run=False)
+    posts = [c for c in shop.calls if c.method == "POST"]
+    assert len(posts) == 1 and "/202406/coupons/7700000000000000001/deactivate" in posts[0].url.path
