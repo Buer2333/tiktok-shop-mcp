@@ -38,6 +38,8 @@ def _handler(activity=ACTIVITY, product=PRODUCT):
             return httpx.Response(200, json={"code": 0, "data": product})
         if request.method == "POST" and path.endswith("/promotion/202309/activities"):
             return httpx.Response(200, json={"code": 0, "data": {"activity_id": AID}, "request_id": "c1"})
+        if request.method == "POST" and path.endswith(f"/activities/{AID}/deactivate"):
+            return httpx.Response(200, json={"code": 0, "data": {"activity_id": AID}, "request_id": "d1"})
         if request.method == "PUT" and path.endswith(f"/activities/{AID}"):
             return httpx.Response(200, json={"code": 0, "data": {"activity_id": AID}, "request_id": "e1"})
         if request.method == "PUT" and path.endswith(f"/activities/{AID}/products"):
@@ -166,4 +168,23 @@ async def test_update_end_time_refusals(shop):
     out = await _call("update_discount_activity_end_tool", seller_name=ALLOWED, activity_id=AID, end_time=1, dry_run=False)
     assert out["error"] is True and all(c.method == "GET" for c in shop.calls)
     out = await _call("update_discount_activity_end_tool", seller_name=OTHER, activity_id=AID, end_time=1799000000, dry_run=False)
+    assert out["refused"] is True
+
+
+@pytest.mark.asyncio
+async def test_deactivate_dry_run_then_send(shop):
+    out = await _call("deactivate_activity_tool", seller_name=ALLOWED, activity_id=AID)
+    assert out["sent"] is False and all(c.method == "GET" for c in shop.calls)
+    out = await _call("deactivate_activity_tool", seller_name=ALLOWED, activity_id=AID, dry_run=False)
+    posts = [c for c in shop.calls if c.method == "POST"]
+    assert len(posts) == 1 and posts[0].url.path.endswith(f"/activities/{AID}/deactivate")
+    assert out["request_id"] == "d1"
+
+
+@pytest.mark.asyncio
+async def test_deactivate_refuses_closed_and_other_shop(shop):
+    shop.handler = _handler(activity={**ACTIVITY, "status": "DEACTIVATED"})
+    out = await _call("deactivate_activity_tool", seller_name=ALLOWED, activity_id=AID, dry_run=False)
+    assert out["error"] is True and all(c.method == "GET" for c in shop.calls)
+    out = await _call("deactivate_activity_tool", seller_name=OTHER, activity_id=AID, dry_run=False)
     assert out["refused"] is True

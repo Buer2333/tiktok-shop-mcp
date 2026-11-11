@@ -236,3 +236,36 @@ async def update_activity_times(
         "request_id": response.get("request_id"),
         "read_back": await read_activity(client, activity_id),
     }
+
+
+async def deactivate_activity(client, activity_id: str, dry_run: bool = True, **kwargs) -> Dict[str, Any]:
+    """End an activity now (Deactivate Activity). It cannot be switched back on; a new one must be created."""
+    activity_id = require_numeric_id(activity_id, "activity_id")
+    act = await read_activity(client, activity_id)
+    if act.get("error"):
+        raise ValueError(act["error"])
+    a = act["activity"]
+    if a.get("status") in CLOSED_STATUSES:
+        raise ValueError(f"Activity {activity_id} is already {a.get('status')}")
+    products = a.get("products") or []
+    preview = {
+        "title": a.get("title"),
+        "activity_type": a.get("activity_type"),
+        "product_level": a.get("product_level"),
+        "status": a.get("status"),
+        "products": len(products),
+    }
+    path = f"{activity_path(activity_id)}/deactivate"
+    request = {"method": "POST", "path": path, "content_type": "application/json", "body": {}}
+    if dry_run:
+        return {"dry_run": True, "sent": False, "preview": preview, "request": request}
+    response = await client._write_request("POST", path, body={})
+    return {
+        "dry_run": False,
+        "sent": True,
+        "preview": preview,
+        "request": request,
+        "response": response.get("data") or {},
+        "request_id": response.get("request_id"),
+        "read_back": await read_activity(client, activity_id),
+    }
