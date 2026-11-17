@@ -136,7 +136,7 @@ Fourteen tools change a shop's listings, prices, stock or seller discounts. They
 | `activate_products` | `POST /product/202309/products/activate` | `seller_name`, `product_ids` (max 20) |
 | `deactivate_products` | `POST /product/202309/products/deactivate` | `seller_name`, `product_ids` (max 20) |
 | `upload_product_file` | `POST /product/202309/files/upload` (multipart) | `seller_name`, `file_path` (MP4/MOV video or PDF); attach a video as `{"id": <id>}` |
-| `edit_product` | `PUT /product/202309/products/{id}` | `seller_name`, `product_id`; plus `changes`, `add_skus`, `sku_images`, `sku_packages` or `submit_draft` |
+| `edit_product` | `PUT /product/202309/products/{id}` | `seller_name`, `product_id`; plus `changes`, `add_skus`, `sku_images`, `sku_packages`, `sku_names` or `submit_draft` |
 | `update_inventory` | `POST /product/202309/products/{id}/inventory/update` | `seller_name`, `product_id`, `quantities` (`{seller_sku: n}`) |
 | `update_sku_prices` | `POST /product/202309/products/{id}/prices/update` | `seller_name`, `product_id`, `prices` (`{seller_sku: "24.99"}`) |
 | `create_discount_activity` | `POST /promotion/202309/activities` (fixed price, per SKU) | `seller_name`, `title`, `begin_time`, `end_time` |
@@ -144,6 +144,8 @@ Fourteen tools change a shop's listings, prices, stock or seller discounts. They
 | `remove_discount_products` | `DELETE /promotion/202309/activities/{id}/products` | `seller_name`, `activity_id`, `products` (`[{product_id, seller_skus}]`) |
 | `update_discount_activity_end` | `PUT /promotion/202309/activities/{id}` | `seller_name`, `activity_id`, `end_time` |
 | `deactivate_activity` | `POST /promotion/202309/activities/{id}/deactivate` | `seller_name`, `activity_id` |
+
+`edit_product` `sku_names` (`{seller_sku: new_value_name}`) renames the SKU's first sales attribute value, e.g. Color "Red" -> "Red - 3 Rolls". The SKU id, price, inventory, images and other SKUs are carried over unchanged. The renamed attribute is sent with the new `value_name` and without `value_id` (a custom value's id belongs to its old name). **Needs live verification on a draft first**; the API behaviour is not yet confirmed. SKUs sharing the same first value must all be renamed to the same name; empty names, unknown seller SKUs, names over 50 characters (a guard, not a platform limit) and renames that make two SKUs' attribute combinations identical are refused. The diff lists `sku_names_changed` with `from`/`to` per seller SKU.
 
 **The gate.** Every write tool checks, before it builds a request:
 
