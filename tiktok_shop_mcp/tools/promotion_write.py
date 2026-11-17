@@ -292,8 +292,10 @@ async def remove_discount_products(
 
     products: [{"product_id": "...", "seller_skus": ["A-1", ...]}]. Seller SKUs
     are resolved to SKU ids from the live product and must currently be in the
-    activity. Sent as {"product_ids": [...], "sku_ids": [...]}; the read-back
-    checks the SKUs are gone and the same products' other SKUs are still in.
+    activity, and must be all of that product's SKUs in the activity: the live API
+    removes the whole product when product_ids is sent (seen 2026-11-17), so a
+    partial removal is refused. Sent as {"product_ids": [...], "sku_ids": [...]};
+    the read-back checks the SKUs are gone and other products are untouched.
     """
     activity_id = require_numeric_id(activity_id, "activity_id")
     if not products:
@@ -335,6 +337,16 @@ async def remove_discount_products(
                                 "current_activity_price": entry["activity_price"]})
         if pid not in product_ids:
             product_ids.append(pid)
+        # Live API 2026-11-17: Remove Activity Product with product_ids drops every SKU of
+        # that product from the activity, even those not listed in sku_ids. So only whole
+        # products can be removed; a partial removal is refused rather than silently widened.
+        left = sorted(sid for sid, e in in_activity.items() if e["product_id"] == pid and sid not in sku_ids)
+        if left:
+            raise ValueError(
+                f"product {pid}: removing only some of its SKUs is not supported (the API removes the "
+                f"whole product); still in activity: {left}. Remove the whole product, then put the "
+                f"SKUs to keep back with set_discount_products_tool."
+            )
 
     path = activity_products_path(activity_id)
     body = {"product_ids": product_ids, "sku_ids": sku_ids}

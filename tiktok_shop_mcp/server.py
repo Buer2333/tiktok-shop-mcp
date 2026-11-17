@@ -1150,7 +1150,7 @@ async def remove_discount_products_tool(
     products: List[Dict[str, Any]],
     dry_run: bool = True,
 ) -> str:
-    """Remove SKUs from a fixed-price per-SKU discount activity (DELETE /promotion/202309/activities/{id}/products). products: [{"product_id": "...", "seller_skus": ["A-1"]}]. Seller SKUs are resolved to SKU ids from the live product and must currently be in the activity; the preview lists each SKU's current activity price. The read-back confirms the SKUs are gone and the product's other SKUs are still in. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    """Remove SKUs from a fixed-price per-SKU discount activity (DELETE /promotion/202309/activities/{id}/products). products: [{"product_id": "...", "seller_skus": ["A-1"]}]. Seller SKUs are resolved to SKU ids from the live product and must currently be in the activity, and must be all of that product's SKUs in the activity: the live API removes the whole product, so a partial removal is refused (remove the product, then put the SKUs to keep back with set_discount_products_tool). The preview lists each SKU's current activity price; the read-back confirms the SKUs are gone and other products are untouched. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
     client = get_write_client(seller_name)
     result = await remove_discount_products(client, activity_id=activity_id, products=products, dry_run=dry_run)
     return _write_result(client, result)

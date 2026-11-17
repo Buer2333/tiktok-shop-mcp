@@ -113,7 +113,8 @@ async def test_price_send_reports_old_price_when_under_review(state):
 
 # --- remove_discount_products_tool ---
 
-REMOVE = [{"product_id": PID, "seller_skus": ["A-1"]}]
+REMOVE = [{"product_id": PID, "seller_skus": ["A-1", "A-2"]}]
+REMOVE_PARTIAL = [{"product_id": PID, "seller_skus": ["A-1"]}]
 
 
 @pytest.mark.asyncio
@@ -127,25 +128,27 @@ async def test_remove_dry_run_previews_with_current_activity_price(state):
     out = await _call("remove_discount_products_tool", seller_name=ALLOWED, activity_id=AID, products=REMOVE)
     assert out["sent"] is False and all(c.method == "GET" for c in state.calls)
     assert out["request"]["method"] == "DELETE"
-    assert out["request"]["body"] == {"product_ids": [PID], "sku_ids": ["101"]}
-    assert out["preview"] == [{"product_id": PID, "seller_sku": "A-1", "sku_id": "101", "current_activity_price": "19.99"}]
+    assert out["request"]["body"] == {"product_ids": [PID], "sku_ids": ["101", "102"]}
+    assert out["preview"][0] == {"product_id": PID, "seller_sku": "A-1", "sku_id": "101", "current_activity_price": "19.99"}
+    assert len(out["preview"]) == 2
 
 
 @pytest.mark.asyncio
 async def test_remove_send_deletes_once_and_verifies(state):
     out = await _call("remove_discount_products_tool", seller_name=ALLOWED, activity_id=AID, products=REMOVE, dry_run=False)
     dels = [c for c in state.calls if c.method == "DELETE"]
-    assert len(dels) == 1 and json.loads(dels[0].content) == {"product_ids": [PID], "sku_ids": ["101"]}
+    assert len(dels) == 1 and json.loads(dels[0].content) == {"product_ids": [PID], "sku_ids": ["101", "102"]}
     assert state.calls[-1].method == "GET" and out["request_id"] == "r1"
     v = out["verification"]
     assert v["removed_gone"] is True and v["other_skus_kept"] is True
 
 
 @pytest.mark.asyncio
-async def test_remove_flags_when_whole_product_vanishes(state):
-    state.state.wipe_on_delete = True
-    out = await _call("remove_discount_products_tool", seller_name=ALLOWED, activity_id=AID, products=REMOVE, dry_run=False)
-    assert out["verification"]["other_skus_kept"] is False and out["verification"]["other_skus_missing"] == ["102"]
+async def test_remove_refuses_partial_product(state):
+    # the live API drops the whole product when product_ids is sent, so only whole products go
+    out = await _call("remove_discount_products_tool", seller_name=ALLOWED, activity_id=AID, products=REMOVE_PARTIAL, dry_run=False)
+    assert out["error"] is True and "whole product" in out["message"] and "102" in out["message"]
+    assert all(c.method == "GET" for c in state.calls)
 
 
 @pytest.mark.asyncio
