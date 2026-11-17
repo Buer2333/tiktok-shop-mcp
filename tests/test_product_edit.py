@@ -5,6 +5,7 @@ import json
 import httpx
 import pytest
 
+from tiktok_shop_mcp.tools.product_edit import edit_body_from_product
 from tests.test_product_write import ALLOWED, OTHER, _call, http  # noqa: F401  (fixture)
 
 PID = "1729000000000000001"
@@ -359,3 +360,78 @@ async def test_allow_overwrite_pending_skips_the_check(shop):
         dry_run=False,
     )
     assert out["sent"] is True
+
+
+# ---- sku_names: rename the first sales attribute value ----
+
+
+@pytest.mark.asyncio
+async def test_sku_names_renames_only_the_target_first_attribute(shop):
+    shop.handler = _handler(TWO_SKUS)
+    out = await _call("edit_product_tool", seller_name=ALLOWED, product_id=PID, sku_names={"B-1": "Blue - 3 Rolls"})
+    assert out["dry_run"] is True and out["sent"] is False
+    base = edit_body_from_product(TWO_SKUS)
+    body = out["request"]["body"]
+    assert [s["seller_sku"] for s in body["skus"]] == ["A-1", "A-1L", "B-1"]
+    # untouched SKUs are identical to the read-back
+    assert body["skus"][0] == base["skus"][0] and body["skus"][1] == base["skus"][1]
+    new, old = body["skus"][2], base["skus"][2]
+    assert new["sales_attributes"][0]["value_name"] == "Blue - 3 Rolls"
+    assert "value_id" not in new["sales_attributes"][0]
+    # everything else of the renamed SKU is identical: id, price, inventory, image, attribute id/name
+    stripped = json.loads(json.dumps(new))
+    stripped["sales_attributes"][0]["value_name"] = old["sales_attributes"][0]["value_name"]
+    stripped["sales_attributes"][0]["value_id"] = old["sales_attributes"][0]["value_id"]
+    assert stripped == old
+    assert out["diff"]["sku_names_changed"] == [{"seller_sku": "B-1", "from": "Blue", "to": "Blue - 3 Rolls"}]
+    # no other top-level field moved
+    assert {k: v for k, v in body.items() if k != "skus"} == {
+        k: v for k, v in base.items() if k != "skus"
+    } | {"category_version": "v2"}
+
+
+@pytest.mark.asyncio
+async def test_sku_names_shared_value_renamed_together(shop):
+    shop.handler = _handler(TWO_SKUS)
+    out = await _call(
+        "edit_product_tool", seller_name=ALLOWED, product_id=PID, sku_names={"A-1": "Red - 3 Rolls", "A-1L": "Red - 3 Rolls"}
+    )
+    skus = {s["seller_sku"]: s for s in out["request"]["body"]["skus"]}
+    assert skus["A-1"]["sales_attributes"][0]["value_name"] == "Red - 3 Rolls"
+    assert skus["A-1L"]["sales_attributes"][0]["value_name"] == "Red - 3 Rolls"
+    assert skus["A-1L"]["sales_attributes"][1] == {"id": "200", "value_id": "9", "name": "Size", "value_name": "Large"}
+    assert skus["B-1"]["sales_attributes"][0]["value_name"] == "Blue"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "names,msg",
+    [
+        ({"NOPE": "X"}, "not on this product"),
+        ({"B-1": ""}, "non-empty"),
+        ({"B-1": "   "}, "non-empty"),
+        ({"B-1": "x" * 51}, "at most 50"),
+        ({"A-1": "Red - 3 Rolls"}, "same name"),  # shared with A-1L, which is not renamed
+        ({"A-1": "Red 3", "A-1L": "Red 4"}, "same name"),  # inconsistent
+        ({"B-1": "red"}, "same attribute combination"),  # B-1 (single attr) vs A-1 (single attr "Red")
+    ],
+)
+async def test_bad_sku_names_send_nothing(shop, names, msg):
+    shop.handler = _handler(TWO_SKUS)
+    out = await _call("edit_product_tool", seller_name=ALLOWED, product_id=PID, sku_names=names, dry_run=False)
+    assert out["error"] is True and msg in out["message"]
+    assert all(c.method == "GET" for c in shop.calls)
+
+
+@pytest.mark.asyncio
+async def test_sku_names_pending_rename_not_undone(shop):
+    review = json.loads(json.dumps(CURRENT))
+    review["status"] = "UNDER_REVIEW"
+    review["skus"][0]["sales_attributes"][0]["value_name"] = "Red - 3 Rolls"
+    shop.handler = _review_handler(CURRENT, review)
+    out = await _call("edit_product_tool", seller_name=ALLOWED, product_id=PID, changes={"title": "T2"}, dry_run=False)
+    assert out["error"] is True and "sku_names[A-1]" in out["message"]
+    out = await _call(
+        "edit_product_tool", seller_name=ALLOWED, product_id=PID, sku_names={"A-1": "Red - 3 Rolls"}, dry_run=True
+    )
+    assert out.get("error") is not True

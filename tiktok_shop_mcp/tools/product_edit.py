@@ -47,6 +47,8 @@ VERSIONS = {"live", "draft"}
 SKU_PACKAGE_KEYS = {"sku_weight": "package_weight", "sku_dimensions": "package_dimensions"}
 WEIGHT_UNITS = {"KILOGRAM", "POUND"}
 LENGTH_UNITS = {"CENTIMETER", "INCH"}
+# Guard against typos and runaway strings, NOT a documented platform limit.
+SKU_NAME_MAX_LEN = 50
 
 
 def _check_sku_package(seller_sku: str, pkg: Dict[str, Any]) -> None:
@@ -62,6 +64,70 @@ def _check_sku_package(seller_sku: str, pkg: Dict[str, Any]) -> None:
         raise ValueError(
             f"sku_packages[{seller_sku!r}].dimensions needs unit in {sorted(LENGTH_UNITS)} and length, width, height"
         )
+
+
+def _norm_name(v: Any) -> str:
+    return " ".join(str(v or "").split()).casefold()
+
+
+def _attr_key(a: Dict[str, Any]) -> Any:
+    """Identity of one sales attribute value inside a SKU's combination."""
+    return (a.get("id"), _norm_name(a["value_name"]) if a.get("value_name") else ("vid", a.get("value_id")))
+
+
+def _apply_sku_names(body: Dict[str, Any], sku_names: Dict[str, str]) -> List[Dict[str, Any]]:
+    """Rename the first sales attribute value of the named SKUs in body; return from/to rows.
+
+    value_id is dropped on a renamed attribute (the SKU id, attribute id and
+    sku_img are kept): a custom value's id belongs to its old name, so the new
+    name is sent alone and the platform resolves it by name. Needs live
+    verification on a draft first.
+    """
+    by_seller = {s.get("seller_sku"): s for s in body["skus"]}
+    unknown = sorted(set(sku_names) - set(by_seller))
+    if unknown:
+        raise ValueError(f"sku_names names seller_sku not on this product: {unknown}")
+    new_names: Dict[str, str] = {}
+    for seller_sku, name in sku_names.items():
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"sku_names[{seller_sku!r}] must be a non-empty string")
+        name = " ".join(name.split())
+        if len(name) > SKU_NAME_MAX_LEN:
+            raise ValueError(f"sku_names[{seller_sku!r}] is {len(name)} chars; this tool allows at most {SKU_NAME_MAX_LEN}")
+        if not by_seller[seller_sku].get("sales_attributes"):
+            raise ValueError(f"SKU {seller_sku} has no sales attribute to rename")
+        new_names[seller_sku] = name
+    # SKUs sharing the old first value must be renamed together, to the same name.
+    groups: Dict[Any, List[str]] = {}
+    for s in body["skus"]:
+        attrs = s.get("sales_attributes") or []
+        if attrs:
+            groups.setdefault((attrs[0].get("id"), attrs[0].get("value_id")), []).append(s["seller_sku"])
+    for members in groups.values():
+        named = [m for m in members if m in new_names]
+        if not named:
+            continue
+        missing = [m for m in members if m not in new_names]
+        if missing or len({_norm_name(new_names[m]) for m in members}) > 1:
+            raise ValueError(
+                f"SKUs {members} share one first-attribute value and must all be renamed to the same name; "
+                f"missing or inconsistent: {missing or members}"
+            )
+    changes = []
+    for seller_sku, name in new_names.items():
+        attr = by_seller[seller_sku]["sales_attributes"][0]
+        changes.append({"seller_sku": seller_sku, "from": attr.get("value_name"), "to": name})
+        attr["value_name"] = name
+        attr.pop("value_id", None)
+    seen: Dict[Any, str] = {}
+    for s in body["skus"]:
+        combo = tuple(sorted(map(repr, (_attr_key(a) for a in s.get("sales_attributes") or []))))
+        if s.get("sales_attributes") and combo in seen:
+            raise ValueError(
+                f"After renaming, SKUs {seen[combo]!r} and {s.get('seller_sku')!r} would have the same attribute combination"
+            )
+        seen[combo] = s.get("seller_sku")
+    return changes
 
 
 def edit_path(product_id: str) -> str:
@@ -191,6 +257,9 @@ def _pending_view(p: Dict[str, Any]) -> Dict[str, Any]:
             s.get("seller_sku"): _uri_key(((s.get("sales_attributes") or [{}])[0].get("sku_img") or {}).get("uri"))
             for s in skus
         },
+        "sku_names": {
+            s.get("seller_sku"): (s.get("sales_attributes") or [{}])[0].get("value_name") for s in skus
+        },
         "prices": {
             s.get("seller_sku"): (s.get("price") or {}).get("sale_price") or (s.get("price") or {}).get("amount")
             for s in skus
@@ -206,7 +275,7 @@ def _pending_losses(live: Dict[str, Any], review: Dict[str, Any], body: Dict[str
     for field in ("title", "description", "main_images", "video", "skus"):
         if rv[field] != lv[field] and bv[field] != rv[field]:
             lost.append(field)
-    for field in ("sku_images", "prices"):
+    for field in ("sku_images", "sku_names", "prices"):
         for sku, value in rv[field].items():
             if value != lv[field].get(sku) and bv[field].get(sku) != value:
                 lost.append(f"{field}[{sku}]")
@@ -223,6 +292,7 @@ async def edit_product(
     dry_run: bool = True,
     sku_images: Optional[Dict[str, str]] = None,
     sku_packages: Optional[Dict[str, Dict[str, Any]]] = None,
+    sku_names: Optional[Dict[str, str]] = None,
     submit_draft: bool = False,
     allow_overwrite_pending: bool = False,
     **kwargs,
@@ -242,6 +312,16 @@ async def edit_product(
     packages are refused with 12052910 (rule not documented).
     version: which version to start from, "live" or "draft". Editing a draft
     requires changes["save_mode"] == "AS_DRAFT" so it is not sent to audit.
+    sku_names: {seller_sku: new option value name} renames the SKU's FIRST
+    sales attribute value (e.g. Color "Red" -> "Red - 3 Rolls"). The SKU id,
+    price, inventory, images and other SKUs are untouched. The renamed
+    attribute is sent with the new value_name and WITHOUT value_id: a custom
+    value's id belongs to its old name, so the platform is left to resolve
+    the new name. NEEDS LIVE VERIFICATION ON A DRAFT FIRST (not yet tested
+    against the API). SKUs sharing the same first value must all be renamed
+    to the same name; empty names, unknown seller_skus, names over 50 chars
+    (a guard, not a platform fact) and a rename that makes two SKUs'
+    attribute combinations identical are refused.
     submit_draft: send a draft to audit as it is (save_mode LISTING). Only
     with version="draft" and nothing else to change, so a submission never
     carries an unreviewed edit.
@@ -257,16 +337,17 @@ async def edit_product(
         raise ValueError(f"version must be one of {sorted(VERSIONS)}, got {version!r}")
     sku_images = dict(sku_images or {})
     sku_packages = dict(sku_packages or {})
+    sku_names = dict(sku_names or {})
     if submit_draft:
         if version != "draft":
             raise ValueError('submit_draft needs version="draft"')
-        if set(changes) - {"save_mode"} or add_skus or sku_images or sku_packages:
+        if set(changes) - {"save_mode"} or add_skus or sku_images or sku_packages or sku_names:
             raise ValueError("submit_draft sends the draft as it is; save other edits as a draft first")
         if changes.get("save_mode", "LISTING") != "LISTING":
             raise ValueError('submit_draft sends save_mode "LISTING"')
         changes = {"save_mode": "LISTING"}
-    if not changes and not add_skus and not sku_images and not sku_packages:
-        raise ValueError("Nothing to edit: pass changes, add_skus, sku_images and/or sku_packages")
+    if not changes and not add_skus and not sku_images and not sku_packages and not sku_names:
+        raise ValueError("Nothing to edit: pass changes, add_skus, sku_images, sku_packages and/or sku_names")
     for k, v in sku_packages.items():
         _check_sku_package(k, v)
     for k, v in sku_images.items():
@@ -337,6 +418,8 @@ async def edit_product(
                 by_seller[seller_sku]["sku_dimensions"] = copy.deepcopy(pkg["dimensions"])
             packages_changed.append(seller_sku)
     body["skus"] = body["skus"] + [copy.deepcopy(s) for s in add_skus]
+    # After sku_images (which matches on value_id) and add_skus (collision check).
+    names_changed = _apply_sku_names(body, sku_names) if sku_names else []
     body.setdefault("category_version", category_version)
 
     path = edit_path(product_id)
@@ -356,6 +439,7 @@ async def edit_product(
     diff = _diff(current, body, add_skus)
     diff["sku_images_changed"] = sorted(set(images_changed))
     diff["sku_packages_changed"] = sorted(packages_changed)
+    diff["sku_names_changed"] = names_changed
     if dry_run:
         return {"dry_run": True, "sent": False, "based_on": version, "diff": diff, "request": request}
 
