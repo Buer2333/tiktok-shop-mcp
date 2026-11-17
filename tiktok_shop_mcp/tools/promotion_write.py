@@ -269,3 +269,105 @@ async def deactivate_activity(client, activity_id: str, dry_run: bool = True, **
         "request_id": response.get("request_id"),
         "read_back": await read_activity(client, activity_id),
     }
+
+
+def _activity_sku_index(activity: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """{sku_id: {"product_id", "activity_price"}} for every SKU in the activity."""
+    out = {}
+    for p in activity.get("products") or []:
+        for s in p.get("skus") or []:
+            ap = s.get("activity_price") or {}
+            out[str(s.get("id"))] = {"product_id": str(p.get("id")), "activity_price": ap.get("amount")}
+    return out
+
+
+async def remove_discount_products(
+    client,
+    activity_id: str,
+    products: List[Dict[str, Any]],
+    dry_run: bool = True,
+    **kwargs,
+) -> Dict[str, Any]:
+    """Remove SKUs from a fixed-price per-SKU activity (Remove Activity Product).
+
+    products: [{"product_id": "...", "seller_skus": ["A-1", ...]}]. Seller SKUs
+    are resolved to SKU ids from the live product and must currently be in the
+    activity. Sent as {"product_ids": [...], "sku_ids": [...]}; the read-back
+    checks the SKUs are gone and the same products' other SKUs are still in.
+    """
+    activity_id = require_numeric_id(activity_id, "activity_id")
+    if not products:
+        raise ValueError("products is empty")
+    act = await read_activity(client, activity_id)
+    if act.get("error"):
+        raise ValueError(act["error"])
+    a = act["activity"]
+    if a.get("activity_type") != ACTIVITY_TYPE or a.get("product_level") != PRODUCT_LEVEL:
+        raise ValueError(
+            f"Activity {activity_id} is {a.get('activity_type')}/{a.get('product_level')}; "
+            f"only {ACTIVITY_TYPE}/{PRODUCT_LEVEL} is supported"
+        )
+    if a.get("status") in CLOSED_STATUSES:
+        raise ValueError(f"Activity {activity_id} is {a.get('status')}")
+    in_activity = _activity_sku_index(a)
+
+    product_ids, sku_ids, preview = [], [], []
+    for p in products:
+        pid = require_numeric_id(str(p.get("product_id") or ""), "product_id")
+        seller_skus = p.get("seller_skus") or []
+        if not seller_skus:
+            raise ValueError(f"product {pid}: seller_skus is empty")
+        rb = await _read_back(client, pid, "live")
+        if rb.get("error"):
+            raise ValueError(f"product {pid}: {rb['error']}")
+        by_seller = {s.get("seller_sku"): s for s in (rb.get("product") or {}).get("skus") or []}
+        unknown = sorted(set(seller_skus) - set(by_seller))
+        if unknown:
+            raise ValueError(f"product {pid}: seller_sku not on the live product: {unknown}")
+        for seller_sku in seller_skus:
+            sid = str(by_seller[seller_sku]["id"])
+            entry = in_activity.get(sid)
+            if entry is None or entry["product_id"] != pid:
+                raise ValueError(f"{pid}/{seller_sku}: not in activity {activity_id}")
+            if sid not in sku_ids:
+                sku_ids.append(sid)
+                preview.append({"product_id": pid, "seller_sku": seller_sku, "sku_id": sid,
+                                "current_activity_price": entry["activity_price"]})
+        if pid not in product_ids:
+            product_ids.append(pid)
+
+    path = activity_products_path(activity_id)
+    body = {"product_ids": product_ids, "sku_ids": sku_ids}
+    request = {"method": "DELETE", "path": path, "content_type": "application/json", "body": body}
+    activity = {k: a.get(k) for k in ("title", "status", "begin_time", "end_time")}
+    if dry_run:
+        return {"dry_run": True, "sent": False, "activity": activity, "preview": preview, "request": request}
+    response = await client._write_request("DELETE", path, body=body)
+    read_back = await read_activity(client, activity_id)
+    return {
+        "dry_run": False,
+        "sent": True,
+        "activity": activity,
+        "preview": preview,
+        "request": request,
+        "response": response.get("data") or {},
+        "request_id": response.get("request_id"),
+        "read_back": read_back,
+        "verification": _verify_removed(read_back, in_activity, set(sku_ids), set(product_ids)),
+    }
+
+
+def _verify_removed(read_back: Dict[str, Any], before: Dict[str, Dict[str, Any]], removed: set, product_ids: set):
+    if read_back.get("error"):
+        return {"checked": False, "error": read_back["error"]}
+    after = _activity_sku_index(read_back.get("activity") or {})
+    still_there = sorted(removed & set(after))
+    expected_kept = {sid for sid, e in before.items() if e["product_id"] in product_ids and sid not in removed}
+    lost = sorted(expected_kept - set(after))
+    return {
+        "checked": True,
+        "removed_gone": not still_there,
+        "still_in_activity": still_there,
+        "other_skus_kept": not lost,
+        "other_skus_missing": lost,
+    }

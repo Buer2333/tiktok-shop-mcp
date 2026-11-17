@@ -52,6 +52,8 @@ from .tools import (
     activate_products,
     deactivate_products,
     update_inventory,
+    update_sku_prices,
+    remove_discount_products,
     create_discount_activity,
     set_discount_products,
     read_activity,
@@ -1123,6 +1125,34 @@ async def update_inventory_tool(
     """Set the stock of SKUs on one product (POST /product/202309/products/{id}/inventory/update); the product is not re-audited. quantities: {seller_sku: whole number >= 0}. Each SKU keeps its current single warehouse; the preview lists from/to per SKU. Normally an ERP owns stock: use this for one-off corrections. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
     client = get_write_client(seller_name)
     result = await update_inventory(client, product_id=product_id, quantities=quantities, dry_run=dry_run)
+    return _write_result(client, result)
+
+
+@app.tool()
+@write_tool
+async def update_sku_prices_tool(
+    seller_name: str,
+    product_id: str,
+    prices: Dict[str, str],
+    dry_run: bool = True,
+) -> str:
+    """Change the list price of existing SKUs on one live product (POST /product/202309/products/{id}/prices/update). prices: {seller_sku: "24.99"}, positive with at most 2 decimals, USD. Seller SKUs are resolved to SKU ids from the live product; unknown ones are refused. The preview lists from/to per SKU. A price change may go to audit: the read-back reports per SKU whether the live price already matches, and flags "still old price, may be under review" otherwise. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await update_sku_prices(client, product_id=product_id, prices=prices, dry_run=dry_run)
+    return _write_result(client, result)
+
+
+@app.tool()
+@write_tool
+async def remove_discount_products_tool(
+    seller_name: str,
+    activity_id: str,
+    products: List[Dict[str, Any]],
+    dry_run: bool = True,
+) -> str:
+    """Remove SKUs from a fixed-price per-SKU discount activity (DELETE /promotion/202309/activities/{id}/products). products: [{"product_id": "...", "seller_skus": ["A-1"]}]. Seller SKUs are resolved to SKU ids from the live product and must currently be in the activity; the preview lists each SKU's current activity price. The read-back confirms the SKUs are gone and the product's other SKUs are still in. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await remove_discount_products(client, activity_id=activity_id, products=products, dry_run=dry_run)
     return _write_result(client, result)
 
 

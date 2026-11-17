@@ -188,10 +188,10 @@ class TikTokShopClient:
         multipart/form-data. The access token goes only in the
         x-tts-access-token header (202309+ APIs), never in the URL.
         """
-        if method not in ("POST", "PUT"):
+        if method not in ("POST", "PUT", "DELETE"):
             raise ValueError(f"Unsupported write method: {method}")
-        if method == "PUT" and files is not None:
-            raise ValueError("PUT writes take a JSON body, not files")
+        if method in ("PUT", "DELETE") and files is not None:
+            raise ValueError(f"{method} writes take a JSON body, not files")
         if body is not None and files is not None:
             raise ValueError("Pass either a JSON body or files, not both")
 
@@ -223,6 +223,11 @@ class TikTokShopClient:
                 elif method == "PUT":
                     response = await client.put(
                         full_url, params=query_params, headers=headers, content=body_str
+                    )
+                elif method == "DELETE":
+                    # httpx's delete() takes no body; request() does.
+                    response = await client.request(
+                        "DELETE", full_url, params=query_params, headers=headers, content=body_str
                     )
                 else:
                     response = await client.post(

@@ -271,7 +271,7 @@ def test_full_edit_lives_only_in_product_edit():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("method", ["GET", "DELETE", "PATCH"])
+@pytest.mark.parametrize("method", ["GET", "PATCH"])
 async def test_write_request_rejects_other_methods(http, method):
     api = client_mod.TikTokShopClient(_shop(ALLOWED))
     with pytest.raises(ValueError):
