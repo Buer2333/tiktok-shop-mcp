@@ -45,10 +45,20 @@ from .tools import (
     get_brands,
     get_warehouses,
     upload_product_image,
+    upload_product_file,
     create_product,
     partial_edit_product,
+    edit_product,
     activate_products,
     deactivate_products,
+    update_inventory,
+    update_sku_prices,
+    remove_discount_products,
+    create_discount_activity,
+    set_discount_products,
+    read_activity,
+    update_activity_times,
+    deactivate_activity,
 )
 from .write_guard import WriteRefused, require_write_shop
 
@@ -944,6 +954,19 @@ async def upload_product_image_tool(
 
 @app.tool()
 @write_tool
+async def upload_product_file_tool(
+    seller_name: str,
+    file_path: str,
+    dry_run: bool = True,
+) -> str:
+    """Upload a local product video (MP4/MOV) or PDF to TikTok Shop (POST /product/202309/files/upload). Returns the file id; attach a video by passing {"id": <id>} as the product's video field (create_product, partial_edit_product or edit_product changes). Platform size and duration limits apply. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await upload_product_file(client, file_path=file_path, dry_run=dry_run)
+    return _write_result(client, result)
+
+
+@app.tool()
+@write_tool
 async def create_product_tool(
     seller_name: str,
     product: Dict[str, Any],
@@ -975,6 +998,39 @@ async def partial_edit_product_tool(
 
 @app.tool()
 @write_tool
+async def edit_product_tool(
+    seller_name: str,
+    product_id: str,
+    changes: Optional[Dict[str, Any]] = None,
+    add_skus: Optional[List[Dict[str, Any]]] = None,
+    version: str = "live",
+    category_version: str = "v2",
+    dry_run: bool = True,
+    sku_images: Optional[Dict[str, str]] = None,
+    sku_packages: Optional[Dict[str, Dict[str, Any]]] = None,
+    submit_draft: bool = False,
+    allow_overwrite_pending: bool = False,
+) -> str:
+    """Full edit via Edit Product (PUT /product/202309/products/{id}), the only way to add SKUs. The tool reads the product's current version (version: live or draft), rebuilds the complete body from it so every existing field and SKU is carried over, then applies changes (title, description, brand_id, main_images, product_attributes, package_weight, package_dimensions, video, search_terms, key_product_features, save_mode) and appends add_skus (new SKUs in Create Product shape, no id). sku_images ({seller_sku: image uri}) replaces the option image of existing SKUs; SKUs sharing the same first sales attribute value get the same image. sku_packages ({seller_sku: {weight: {unit, value}, dimensions: {unit, length, width, height}}}) sets the package of individual existing SKUs; per-SKU packages already on the product are carried over. Tested on a US draft: SKUs carrying different per-SKU packages were refused (12052910); identical ones were accepted. Existing SKUs are never removed or re-identified. Editing a draft requires changes.save_mode = AS_DRAFT. submit_draft=true (with version="draft" and no other edits) sends the draft to audit as it is. While an earlier edit is still in review, the live read-back is the last approved version: an edit that would put reviewed changes back is refused unless those values are passed again or allow_overwrite_pending=true. Returns a diff against the current version. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request and diff, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await edit_product(
+        client,
+        product_id=product_id,
+        changes=changes,
+        add_skus=add_skus,
+        version=version,
+        category_version=category_version,
+        dry_run=dry_run,
+        sku_images=sku_images,
+        sku_packages=sku_packages,
+        submit_draft=submit_draft,
+        allow_overwrite_pending=allow_overwrite_pending,
+    )
+    return _write_result(client, result)
+
+
+@app.tool()
+@write_tool
 async def activate_products_tool(
     seller_name: str,
     product_ids: List[str],
@@ -983,6 +1039,120 @@ async def activate_products_tool(
     """Activate up to 20 deactivated products. They go to audit (PENDING) before showing again. Per-product failures are listed under errors. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
     client = get_write_client(seller_name)
     result = await activate_products(client, product_ids=product_ids, dry_run=dry_run)
+    return _write_result(client, result)
+
+
+@app.tool()
+@handle_errors
+async def get_promotion_activity_tool(
+    activity_id: str,
+    seller_name: Optional[str] = None,
+) -> str:
+    """Read one promotion activity (type, level, status, times, products and SKU activity prices). Use seller_name to specify which shop."""
+    client = get_shop_client(seller_name)
+    result = await read_activity(client, activity_id)
+    if result.get("error"):
+        raise Exception(result["error"])
+    return json.dumps({"success": True, "seller_name": client.shop.seller_name, **result}, indent=2)
+
+
+@app.tool()
+@write_tool
+async def create_discount_activity_tool(
+    seller_name: str,
+    title: str,
+    begin_time: int,
+    end_time: int,
+    dry_run: bool = True,
+) -> str:
+    """Create an empty fixed-price, per-SKU seller discount (Promotion API: activity_type FIXED_PRICE, product_level VARIATION). begin_time and end_time are Unix seconds. Add products and prices afterwards with set_discount_products_tool. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await create_discount_activity(
+        client, title=title, begin_time=begin_time, end_time=end_time, dry_run=dry_run
+    )
+    return _write_result(client, result)
+
+
+@app.tool()
+@write_tool
+async def set_discount_products_tool(
+    seller_name: str,
+    activity_id: str,
+    products: List[Dict[str, Any]],
+    dry_run: bool = True,
+) -> str:
+    """Put products into a fixed-price per-SKU discount activity. products: [{"product_id": "...", "prices": {seller_sku: "19.99"}}]; each price is what the buyer pays and must be below the SKU's current live price. Seller SKUs are resolved to SKU ids from the live product; the preview lists from/to/off per SKU. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await set_discount_products(client, activity_id=activity_id, products=products, dry_run=dry_run)
+    return _write_result(client, result)
+
+
+@app.tool()
+@write_tool
+async def update_discount_activity_end_tool(
+    seller_name: str,
+    activity_id: str,
+    end_time: int,
+    dry_run: bool = True,
+) -> str:
+    """Change a promotion activity's end time (PUT /promotion/202309/activities/{id}); title and begin time are kept. Every product in the activity keeps its discount for the new period: the preview lists how many products and SKUs that is. end_time is Unix seconds. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await update_activity_times(client, activity_id=activity_id, end_time=end_time, dry_run=dry_run)
+    return _write_result(client, result)
+
+
+@app.tool()
+@write_tool
+async def deactivate_activity_tool(
+    seller_name: str,
+    activity_id: str,
+    dry_run: bool = True,
+) -> str:
+    """End a promotion activity now (POST /promotion/202309/activities/{id}/deactivate): product discounts, shipping discounts (free shipping) and other seller activities. It cannot be switched back on; a new activity must be created. The preview shows type, level and product count. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await deactivate_activity(client, activity_id=activity_id, dry_run=dry_run)
+    return _write_result(client, result)
+
+
+@app.tool()
+@write_tool
+async def update_inventory_tool(
+    seller_name: str,
+    product_id: str,
+    quantities: Dict[str, int],
+    dry_run: bool = True,
+) -> str:
+    """Set the stock of SKUs on one product (POST /product/202309/products/{id}/inventory/update); the product is not re-audited. quantities: {seller_sku: whole number >= 0}. Each SKU keeps its current single warehouse; the preview lists from/to per SKU. Normally an ERP owns stock: use this for one-off corrections. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await update_inventory(client, product_id=product_id, quantities=quantities, dry_run=dry_run)
+    return _write_result(client, result)
+
+
+@app.tool()
+@write_tool
+async def update_sku_prices_tool(
+    seller_name: str,
+    product_id: str,
+    prices: Dict[str, str],
+    dry_run: bool = True,
+) -> str:
+    """Change the list price of existing SKUs on one live product (POST /product/202309/products/{id}/prices/update). prices: {seller_sku: "24.99"}, positive with at most 2 decimals, USD. Seller SKUs are resolved to SKU ids from the live product; unknown ones are refused. The preview lists from/to per SKU. A price change may go to audit: the read-back reports per SKU whether the live price already matches, and flags "still old price, may be under review" otherwise. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await update_sku_prices(client, product_id=product_id, prices=prices, dry_run=dry_run)
+    return _write_result(client, result)
+
+
+@app.tool()
+@write_tool
+async def remove_discount_products_tool(
+    seller_name: str,
+    activity_id: str,
+    products: List[Dict[str, Any]],
+    dry_run: bool = True,
+) -> str:
+    """Remove SKUs from a fixed-price per-SKU discount activity (DELETE /promotion/202309/activities/{id}/products). products: [{"product_id": "...", "seller_skus": ["A-1"]}]. Seller SKUs are resolved to SKU ids from the live product and must currently be in the activity, and must be all of that product's SKUs in the activity: the live API removes the whole product, so a partial removal is refused (remove the product, then put the SKUs to keep back with set_discount_products_tool). The preview lists each SKU's current activity price; the read-back confirms the SKUs are gone and other products are untouched. Write tool: seller_name must be the exact shop name and be listed in TIKTOK_SHOP_WRITE_SHOPS. dry_run defaults to true (returns the request, sends nothing); pass dry_run=false to send."""
+    client = get_write_client(seller_name)
+    result = await remove_discount_products(client, activity_id=activity_id, products=products, dry_run=dry_run)
     return _write_result(client, result)
 
 

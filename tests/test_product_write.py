@@ -263,19 +263,19 @@ async def test_partial_edit_uses_partial_edit_endpoint(monkeypatch, http):
     assert out["read_back"]["product"]["id"] == pid
 
 
-def test_write_code_has_no_full_edit_path():
+def test_full_edit_lives_only_in_product_edit():
     root = Path(server.__file__).parent
-    source = (root / "tools" / "product_write.py").read_text() + (root / "client.py").read_text()
-    assert '"PUT"' not in source
-    assert "client.put(" not in source
-    assert "/product/2025" not in source
+    assert '"PUT"' not in (root / "tools" / "product_write.py").read_text()
+    assert '"PUT"' in (root / "tools" / "product_edit.py").read_text()
+    assert "/product/2025" not in (root / "tools" / "product_edit.py").read_text()
 
 
 @pytest.mark.asyncio
-async def test_write_request_rejects_non_post(http):
+@pytest.mark.parametrize("method", ["GET", "PATCH"])
+async def test_write_request_rejects_other_methods(http, method):
     api = client_mod.TikTokShopClient(_shop(ALLOWED))
     with pytest.raises(ValueError):
-        await api._write_request("PUT", "/product/202309/products/1", body={})
+        await api._write_request(method, "/product/202309/products/1", body={})
     assert http.calls == []
 
 

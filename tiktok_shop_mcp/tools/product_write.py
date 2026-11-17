@@ -121,6 +121,76 @@ async def upload_product_image(
     }
 
 
+# ─── upload_product_file (videos, PDFs) ───
+
+UPLOAD_FILE_PATH = f"/product/{API_VERSION}/files/upload"
+FILE_MIME = {
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".pdf": "application/pdf",
+}
+
+
+async def upload_product_file(
+    client,
+    file_path: str,
+    dry_run: bool = True,
+    **kwargs,
+) -> Dict[str, Any]:
+    """Upload a local video (MP4/MOV) or PDF; returns the file id.
+
+    A product video is attached by putting {"id": <file id>} in the product's
+    video field (create, partial edit or full edit). The size and duration
+    limits are enforced by the platform; this tool only refuses empty files.
+    """
+    p = Path(file_path).expanduser()
+    if not p.is_file():
+        raise ValueError(f"File not found: {p}")
+    suffix = p.suffix.lower()
+    if suffix not in FILE_MIME:
+        raise ValueError(f"Unsupported file format {suffix!r}; allowed: {sorted(FILE_MIME)}")
+    data = p.read_bytes()
+    if not data:
+        raise ValueError("File is empty")
+    mime = FILE_MIME[suffix]
+
+    request = {
+        "method": "POST",
+        "path": UPLOAD_FILE_PATH,
+        "content_type": "multipart/form-data",
+        "form": {"name": p.name},
+        "file": {
+            "field": "data",
+            "filename": p.name,
+            "mime": mime,
+            "size_bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        },
+    }
+    if dry_run:
+        return {"dry_run": True, "sent": False, "request": request}
+
+    response = await client._write_request(
+        "POST",
+        UPLOAD_FILE_PATH,
+        files={"data": (p.name, data, mime)},
+        form={"name": p.name},
+        # Like image upload, file upload is a seller-level API.
+        skip_cipher=True,
+    )
+    d = response.get("data") or {}
+    return {
+        "dry_run": False,
+        "sent": True,
+        "request": request,
+        "id": d.get("id"),
+        "url": (d.get("url") or "").strip() or None,
+        "name": d.get("name"),
+        "format": d.get("format"),
+        "request_id": response.get("request_id"),
+    }
+
+
 # ─── shared helpers ───
 
 

@@ -9,11 +9,11 @@ Built for sellers and agencies who operate TikTok Shops and want their AI assist
 ## Features
 
 - **Multi-shop** — configure any number of shops in one JSON file; every tool takes an optional `seller_name` (partial match) to pick the shop
-- **32 tools** covering orders, finance, product catalog and listing lookups, shop/video/SKU analytics, affiliate best-sellers, returns/cancellations, and gated product writes
+- **42 tools** covering orders, finance, product catalog and listing lookups, shop/video/SKU analytics, affiliate best-sellers, returns/cancellations, and gated product, price, stock and seller-discount writes
 - **Human-friendly dates** — pass `start_date=2026-07-01` + an IANA timezone instead of unix timestamps; the server handles conversion
 - **Token lifecycle** — inspect expiry and refresh access tokens (single shop or all shops) without leaving the conversation
 - **Resilient by default** — all requests go through [`mcp-retry`](https://github.com/Buer2333/mcp-retry) (exponential backoff + jitter on 429/5xx/network errors)
-- **Read-only by default** — product write tools exist (image upload, create, partial edit, activate/deactivate), but every one of them refuses until you list the shop's exact name in `TIKTOK_SHOP_WRITE_SHOPS`, and each defaults to a dry run. See [Product writes](#product-writes-opt-in). Otherwise the only thing the server writes is your own `shops.json`, when it refreshes tokens, with owner-only (`0600`) permissions. If you never need writes, authorize the Partner Center app with read scopes only
+- **Read-only by default** — write tools exist (image and file upload, create, partial and full edit, activate/deactivate, stock, list prices, seller discounts), but every one of them refuses until you list the shop's exact name in `TIKTOK_SHOP_WRITE_SHOPS`, and each defaults to a dry run. See [Product writes](#product-writes-opt-in). Otherwise the only thing the server writes is your own `shops.json`, when it refreshes tokens, with owner-only (`0600`) permissions. If you never need writes, authorize the Partner Center app with read scopes only
 
 ## Tools
 
@@ -24,7 +24,8 @@ Built for sellers and agencies who operate TikTok Shops and want their AI assist
 | Finance | `get_shop_statements` · `get_shop_transactions` |
 | Products | `get_shop_products` · `get_product_detail` |
 | Listing lookups | `get_categories` · `get_category_attributes` · `get_category_rules` · `get_brands` · `get_warehouses` |
-| Product writes (opt-in, see below) | `upload_product_image` · `create_product` · `partial_edit_product` · `activate_products` · `deactivate_products` |
+| Product writes (opt-in, see below) | `upload_product_image` · `upload_product_file` · `create_product` · `partial_edit_product` · `edit_product` · `activate_products` · `deactivate_products` · `update_inventory` · `update_sku_prices` |
+| Promotions | `get_promotion_activity` · writes (opt-in): `create_discount_activity` · `set_discount_products` · `remove_discount_products` · `update_discount_activity_end` · `deactivate_activity` |
 | Shop analytics | `get_shop_performance` · `get_shop_performance_hourly` · `get_shop_products_performance` · `get_product_performance` · `get_shop_videos_performance` · `get_sku_performance` · `get_customer_service_performance` |
 | Video & affiliate | `get_account_video_gmv` · `get_videos_bestselling` · `get_creators_bestselling` · `get_products_bestselling` |
 
@@ -100,7 +101,7 @@ To keep one business's shops apart from another's, point `TIKTOK_SHOP_CONFIG` at
 ### Token lifetime
 
 - **Access token:** lasts about 7 days. An expired token gets `401` / `105002 Expired credentials`; the server then refreshes it and retries once, so MCP use needs no scheduled job.
-- **Refresh token:** effectively does not expire (observed expiry in 2125).
+- **Refresh token:** effectively does not expire (observed expiry in 2125). Each refresh returns a new refresh token, but the previous refresh token and access token keep working (observed 2026-11-11), so a second copy of the credentials on another host can refresh on its own without invalidating this one.
 - **`access_token_expire_in` / `refresh_token_expire_in`:** despite the names, these are Unix timestamps, not durations.
 - **`*_expire_at` in `shops.json` and `list_shops`:** real UTC dates. Entries written by older versions can show years like 2083 until their next refresh.
 
@@ -125,7 +126,7 @@ claude mcp add tiktok-shop -- tiktok-shop-mcp
 
 ## Product writes (opt-in)
 
-Five tools change a shop's listings. They are off unless you turn them on per shop.
+Fourteen tools change a shop's listings, prices, stock or seller discounts. They are off unless you turn them on per shop.
 
 | Tool | Endpoint (Product API 202309) | Required params |
 |---|---|---|
@@ -134,6 +135,15 @@ Five tools change a shop's listings. They are off unless you turn them on per sh
 | `partial_edit_product` | `POST /product/202309/products/{id}/partial_edit` | `seller_name`, `product_id`, `changes` |
 | `activate_products` | `POST /product/202309/products/activate` | `seller_name`, `product_ids` (max 20) |
 | `deactivate_products` | `POST /product/202309/products/deactivate` | `seller_name`, `product_ids` (max 20) |
+| `upload_product_file` | `POST /product/202309/files/upload` (multipart) | `seller_name`, `file_path` (MP4/MOV video or PDF); attach a video as `{"id": <id>}` |
+| `edit_product` | `PUT /product/202309/products/{id}` | `seller_name`, `product_id`; plus `changes`, `add_skus`, `sku_images`, `sku_packages` or `submit_draft` |
+| `update_inventory` | `POST /product/202309/products/{id}/inventory/update` | `seller_name`, `product_id`, `quantities` (`{seller_sku: n}`) |
+| `update_sku_prices` | `POST /product/202309/products/{id}/prices/update` | `seller_name`, `product_id`, `prices` (`{seller_sku: "24.99"}`) |
+| `create_discount_activity` | `POST /promotion/202309/activities` (fixed price, per SKU) | `seller_name`, `title`, `begin_time`, `end_time` |
+| `set_discount_products` | `PUT /promotion/202309/activities/{id}/products` | `seller_name`, `activity_id`, `products` (`[{product_id, prices: {seller_sku: price}}]`) |
+| `remove_discount_products` | `DELETE /promotion/202309/activities/{id}/products` | `seller_name`, `activity_id`, `products` (`[{product_id, seller_skus}]`) |
+| `update_discount_activity_end` | `PUT /promotion/202309/activities/{id}` | `seller_name`, `activity_id`, `end_time` |
+| `deactivate_activity` | `POST /promotion/202309/activities/{id}/deactivate` | `seller_name`, `activity_id` |
 
 **The gate.** Every write tool checks, before it builds a request:
 
@@ -158,14 +168,15 @@ Five tools change a shop's listings. They are off unless you turn them on per sh
 
 **What the tools will not do.**
 
-- No full **Edit Product** (`PUT .../products/{id}`): it overwrites every field the body leaves out.
+- `edit_product` never sends a body you wrote by hand. Edit Product (`PUT .../products/{id}`) overwrites every field the body leaves out, so the tool reads the current version, carries every field and SKU over, then applies your changes. It never removes or re-identifies existing SKUs. While an earlier edit is still in review, the live read-back is the last approved version; an edit that would put those reviewed values back is refused unless you pass them again or set `allow_overwrite_pending=true`.
+- `remove_discount_products` removes a product's SKUs only all together: the live API drops the whole product from the activity, so a partial removal is refused. Remove the product, then put back the SKUs to keep with `set_discount_products`.
 - `partial_edit_product` refuses `skus`. The API treats each top-level field as a unit, so a `skus` list you send stands in for the whole property; the docs do not say what happens to SKUs left out of it (they may be removed), and SKUs carry inventory. It also refuses `listing_platforms` and anything not on its list (`title`, `description`, `brand_id`, `main_images`, `product_attributes`, `package_weight`, `package_dimensions`, `video`, `certifications`, `size_chart`, `search_terms`, `key_product_features`, `external_product_id`, `save_mode`, `locale`).
-- No stock or price updates, product deletion, or anything touching orders, finance or promotions.
+- No product deletion, coupons, or anything touching orders or finance.
 
 **Things to know before sending.**
 
 - Partial Edit leaves omitted top-level fields alone, but an object or list you do send replaces that whole property: leave out one `product_attributes` entry or one `package_dimensions` value and it is blanked. Send the full property.
-- Edits other than price and inventory go back to audit. So do activations (status `PENDING`). New products are audited after creation.
+- Edits other than price and inventory go back to audit; `update_sku_prices` and `update_inventory` normally take effect at once, and the read-back says per SKU whether the live value already matches. So do activations (status `PENDING`). New products are audited after creation.
 - `create_product` sets each SKU's opening `inventory` (`warehouse_id` from `get_warehouses`, `quantity`). If another system syncs your stock, make the opening numbers match it; after creation, leave stock to that system.
 - US, EU and SEA shops must use `category_version` `v2`; the tools default to it.
 - The Partner Center app needs the Product Basic (`seller.product.basic`) and Product Modify (`seller.product.write`) scopes; `get_warehouses` needs Logistics Basic (`seller.logistics`).
